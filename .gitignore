@@ -1,0 +1,6 @@
+__pycache__/
+.conda/
+.venv/
+.ipynb_checkpoints/
+.vscode/
+data/
