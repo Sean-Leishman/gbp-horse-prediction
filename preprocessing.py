@@ -1,6 +1,6 @@
 import pandas as pd
 import numpy as np
-from helper import convertDateToInt, convertStringIntoDate
+from helper import convertDateToInt, convertStringIntoDate, going_basic_dict, going_dict, dist_dict, type_dict
 from sklearn.linear_model import LinearRegression
 
 """
