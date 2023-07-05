@@ -64,21 +64,24 @@ class Preprocessor:
         self.df = self.df.sort_values('date')
         max_num_races = 10
 
-        self.df = self.df.set_index('horse_ids')
+        self.df = self.df.set_index(['horse_ids', 'race_id'])
 
         self.df['days_since_last_race'] = self.df['date'] - \
             self.df.groupby('horse_ids')['date'].shift()
+        print(self.df)
+        print(self.df.groupby(
+            'horse_ids')['top_speeds'].rolling(1, closed='left').sum().reset_index(0, drop=True))
         self.df['last_figures'] = self.df.groupby(
-            'horse_ids')['top_speeds'].rolling(1, closed='left').sum()
-        self.df['last_ratings'] = self.df.drop(self.df.loc[self.df.ratings == 0].index).groupby(
-            'horse_ids')['ratings'].rolling(1, closed='left').sum()
-        self.df['last_official_ratings'] = self.df.drop(self.df.loc[self.df.ratings == 0].index).groupby(
-            'horse_ids')['official_ratings'].rolling(1, closed='left').sum()
+            'horse_ids')['top_speeds'].rolling(1, closed='left').sum().reset_index(0, drop=True)
+        self.df['last_ratings'] = self.df.groupby(
+            'horse_ids')['ratings'].rolling(1, closed='left').sum().reset_index(0, drop=True)
+        self.df['last_official_ratings'] = self.df.groupby(
+            'horse_ids')['official_ratings'].rolling(1, closed='left').sum().reset_index(0, drop=True)
 
         self.df['mean_figures'] = self.df.groupby('horse_ids')['top_speeds'].rolling(
-            5, min_periods=1, closed='left').mean()
+            5, min_periods=1, closed='left').mean().reset_index(0, drop=True)
         self.df['mean_ratings'] = self.df.groupby('horse_ids')['ratings'].rolling(
-            5, min_periods=1, closed='left').mean()
+            5, min_periods=1, closed='left').mean().reset_index(0, drop=True)
 
         self.df['difference_in_ratings'] = self.df['last_ratings'] - \
             self.df['last_ratings']
@@ -160,6 +163,8 @@ class Preprocessor:
         df = race_df.merge(runner_df, on="race_id")
         self.df = df.merge(self.df[['race_id', 'horse_ids', 'sire_id',
                                     'dam_id', 'dam_sire_id']], on=["race_id", "horse_ids"])
+
+        self.df = self.df.drop_duplicates()
 
         self.fill_nan_with_0()
         self.compute_horse_features(['going', 'dist'])
