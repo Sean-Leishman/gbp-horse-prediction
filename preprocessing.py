@@ -107,16 +107,219 @@ class Preprocessor:
                     max_num_races, closed='left', min_periods=1).mean().reset_index([0, 1], drop=True)
 
     def compute_features_group(self):
-        jockey_df = self.df.set_index(['jockey_ids', 'horse_ids', 'race_id'])
-        trainer_df = self.df.set_index(['trainer_ids', 'horse_ids', 'race_id'])
-        self.df['jockey_win_percent'] = jockey_df.groupby('trainer_ids')['won'].rolling(
+        self.df = self.df.reset_index()
+        self.df = self.df.set_index(['jockey_ids', 'horse_ids', 'race_id'])
+        self.df['jockey_win_percent'] = self.df.groupby('trainer_ids')['won'].rolling(
             20, closed='left', min_periods=1).mean().reset_index(0, drop=True)
 
-        self.df['trainer_win_percent'] = trainer_df.groupby('trainer_ids')['won'].rolling(
+        self.df = self.df.reset_index()
+        self.df = self.df.set_index(['trainer_ids', 'horse_ids', 'race_id'])
+        self.df['trainer_win_percent'] = self.df.groupby('trainer_ids')['won'].rolling(
             20, closed='left', min_periods=1).mean().reset_index(0, drop=True)
 
     def compute_pedigree_group(self, group_cols):
-        pass
+        sire_win_percent = self.df.groupby("sire_id")['won'].mean().fillna(
+            value=0)._append(pd.Series(0))
+        dam_win_percent = self.df.groupby("dam_id")['won'].mean().fillna(
+            value=0)._append(pd.Series(0))
+        dam_sire_win_percent = self.df.groupby(
+            "dam_sire_id")['won'].mean().fillna(value=0)._append(pd.Series(0))
+
+        self.df[['sire_id', 'dam_id', 'dam_sire_id']] = self.df[[
+            'sire_id', 'dam_id', 'dam_sire_id']].fillna(value=0)
+        self.df['sire_win_percent'] = self.df.apply(
+            lambda row: sire_win_percent[row['sire_id']], axis=1)
+        self.df['dam_win_percent'] = self.df.apply(
+            lambda row: dam_win_percent[row['dam_id']], axis=1)
+        self.df['dam_sire_win_percent'] = self.df.apply(
+            lambda row: dam_sire_win_percent[row['dam_sire_id']], axis=1)
+        # test_df.apply(lambda row: set_sire_win_percent(row),axis=1)
+
+        sire_df = pd.DataFrame(
+            data=self.df['sire_id'].unique(), columns=["sire_id"])
+        sire_df = pd.DataFrame(
+            data=self.df['sire_id'].unique(), columns=["sire_id"])
+        sire_df = sire_df.set_index('sire_id')
+
+        self.df = self.df.reset_index()
+        self.df = self.df.set_index(["race_id", "horse_ids"])
+        new_df = self.df.loc[self.df.index.isin(sire_df.index, level=1)]
+
+        og_win_percent = self.df.loc[self.df.index.isin(sire_df.index, level=1)].groupby(
+            level=[1])['won'].mean()
+        og_top_speeds = self.df.loc[self.df.index.isin(sire_df.index, level=1)].groupby(
+            level=[1])['top_speeds'].mean()
+        og_ratings = self.df.loc[self.df.index.isin(sire_df.index, level=1)].groupby(
+            level=[1])['ratings'].mean()
+
+        sire_df['num_runners'] = self.df.groupby('sire_id')['won'].count()
+        sire_df['won'] = self.df.groupby('sire_id')['won'].sum()
+        sire_df['og_win_percent'] = og_win_percent
+        sire_df['og_mean_top_speeds'] = og_top_speeds
+        sire_df['og_mean_ratings'] = og_ratings
+        sire_df['og_flat_win_percent'] = new_df.loc[self.df.race_type == 1].groupby(level=[
+            1])['won'].mean()
+        sire_df['og_chase_win_percent'] = new_df.loc[self.df.race_type == 2].groupby(level=[
+            1])['won'].mean()
+        sire_df['og_hurdle_win_percent'] = new_df.loc[self.df.race_type == 0].groupby(level=[
+            1])['won'].mean()
+        sire_df['og_soft_win_percent'] = new_df.loc[(self.df.going == 13) | (
+            self.df.going == 19) | (self.df.going == 14)].groupby(level=[1])['won'].mean()
+        sire_df['og_firm_win_percent'] = new_df.loc[(self.df.going == 2) | (
+            self.df.going == 1)].groupby(level=[1])['won'].mean()
+        sire_df['og_heavy_win_percent'] = new_df.loc[(self.df.going == 8) | (self.df.going == 11) | (
+            self.df.going == 12) | (self.df.going == 14)].groupby(level=[1])['won'].mean()
+        sire_df['og_good_soft_win_percent'] = new_df.loc[(self.df.going == 6) | (self.df.going == 20) | (
+            self.df.going == 7) | (self.df.going == 21) | (self.df.going == 18)].groupby(level=[1])['won'].mean()
+        sire_df['og_good_win_percent'] = new_df.loc[(self.df.going == 4) | (
+            self.df.going == 16) | (self.df.going == 17)].groupby(level=[1])['won'].mean()
+        sire_df['og_good_firm_win_percent'] = new_df.loc[(self.df.going == 5) | (
+            self.df.going == 4) | (self.df.going == 2)].groupby(level=[1])['won'].mean()
+        sire_df['og_0_6_win_percent'] = new_df.loc[(self.df.dist_categories >= 0) & (
+            self.df.dist_categories <= 6)].groupby(level=[1])['won'].mean()
+        sire_df['og_7_9_win_percent'] = new_df.loc[(self.df.dist_categories >= 7) & (
+            self.df.dist_categories <= 9)].groupby(level=[1])['won'].mean()
+        sire_df['og_10_13_win_percent'] = new_df.loc[(self.df.dist_categories >= 10) & (
+            self.df.dist_categories <= 13)].groupby(level=[1])['won'].mean()
+        sire_df['og_14_20_win_percent'] = new_df.loc[(self.df.dist_categories >= 14) & (
+            self.df.dist_categories <= 20)].groupby(level=[1])['won'].mean()
+        sire_df['og_21_30_win_percent'] = new_df.loc[(self.df.dist_categories >= 21) & (
+            self.df.dist_categories <= 30)].groupby(level=[1])['won'].mean()
+        sire_df['og_31_40_win_percent'] = new_df.loc[(self.df.dist_categories >= 31) & (
+            self.df.dist_categories <= 40)].groupby(level=[1])['won'].mean()
+
+        sire_df['prog_win_percent'] = self.df.groupby(
+            'sire_id')['sire_win_percent'].mean()
+        sire_df['prog_mean_top_speeds'] = self.df.groupby('sire_id')[
+            'top_speeds'].mean()
+        sire_df['prog_mean_ratings'] = self.df.groupby('sire_id')[
+            'ratings'].mean()
+        sire_df['prog_flat_win_percent'] = self.df.loc[self.df.race_type ==
+                                                       1].groupby('sire_id')['won'].mean()
+        sire_df['prog_chase_win_percent'] = self.df.loc[self.df.race_type ==
+                                                        2].groupby('sire_id')['won'].mean()
+        sire_df['prog_hurdle_win_percent'] = self.df.loc[self.df.race_type ==
+                                                         0].groupby('sire_id')['won'].mean()
+        sire_df['prog_soft_win_percent'] = self.df.loc[(self.df.going == 13) | (
+            self.df.going == 19) | (self.df.going == 14)].groupby('sire_id')['won'].mean()
+        sire_df['prog_firm_win_percent'] = self.df.loc[(self.df.going == 2) | (
+            self.df.going == 1)].groupby('sire_id')['won'].mean()
+        sire_df['prog_heavy_win_percent'] = self.df.loc[(self.df.going == 8) | (self.df.going == 11) | (
+            self.df.going == 12) | (self.df.going == 14)].groupby('sire_id')['won'].mean()
+        sire_df['prog_good_soft_win_percent'] = self.df.loc[(self.df.going == 6) | (self.df.going == 20) | (
+            self.df.going == 7) | (self.df.going == 21) | (self.df.going == 18)].groupby('sire_id')['won'].mean()
+        sire_df['prog_good_win_percent'] = self.df.loc[(self.df.going == 4) | (
+            self.df.going == 16) | (self.df.going == 17)].groupby('sire_id')['won'].mean()
+        sire_df['prog_good_firm_win_percent'] = self.df.loc[(self.df.going == 5) | (
+            self.df.going == 4) | (self.df.going == 2)].groupby('sire_id')['won'].mean()
+        sire_df['prog_0_6_win_percent'] = self.df.loc[(self.df.dist_categories >= 0) & (
+            self.df.dist_categories <= 6)].groupby('sire_id')['won'].mean()
+        sire_df['prog_7_9_win_percent'] = self.df.loc[(self.df.dist_categories >= 7) & (
+            self.df.dist_categories <= 9)].groupby('sire_id')['won'].mean()
+        sire_df['prog_10_13_win_percent'] = self.df.loc[(self.df.dist_categories >= 10) & (
+            self.df.dist_categories <= 13)].groupby('sire_id')['won'].mean()
+        sire_df['prog_14_20_win_percent'] = self.df.loc[(self.df.dist_categories >= 12) & (
+            self.df.dist_categories <= 20)].groupby('sire_id')['won'].mean()
+        sire_df['prog_21_30_win_percent'] = self.df.loc[(self.df.dist_categories >= 21) & (
+            self.df.dist_categories <= 30)].groupby('sire_id')['won'].mean()
+        sire_df['prog_31_40_win_percent'] = self.df.loc[(self.df.dist_categories >= 31) & (
+            self.df.dist_categories <= 40)].groupby('sire_id')['won'].mean()
+
+        dam_df = pd.DataFrame(
+            data=self.df['dam_id'].unique(), columns=["dam_id"])
+        dam_df = dam_df.set_index('dam_id')
+
+        new_df = self.df.loc[self.df.index.isin(dam_df.index, level=1)]
+
+        og_win_percent = self.df.loc[self.df.index.isin(dam_df.index, level=1)].groupby(
+            level=[1])['won'].mean()
+        og_top_speeds = self.df.loc[self.df.index.isin(dam_df.index, level=1)].groupby(
+            level=[1])['top_speeds'].mean()
+        og_ratings = self.df.loc[self.df.index.isin(dam_df.index, level=1)].groupby(
+            level=[1])['ratings'].mean()
+
+        dam_df['num_runners'] = self.df.groupby('dam_id')['won'].count()
+        dam_df['won'] = self.df.groupby('dam_id')['won'].sum()
+        dam_df['og_win_percent'] = og_win_percent
+        dam_df['og_mean_top_speeds'] = og_top_speeds
+        dam_df['og_mean_ratings'] = og_ratings
+        dam_df['og_flat_win_percent'] = new_df.loc[self.df.race_type == 1].groupby(level=[
+            1])['won'].mean()
+        dam_df['og_chase_win_percent'] = new_df.loc[self.df.race_type == 2].groupby(level=[
+            1])['won'].mean()
+        dam_df['og_hurdle_win_percent'] = new_df.loc[self.df.race_type == 0].groupby(level=[
+            1])['won'].mean()
+        dam_df['og_soft_win_percent'] = new_df.loc[(self.df.going == 13) | (
+            self.df.going == 19) | (self.df.going == 14)].groupby(level=[1])['won'].mean()
+        dam_df['og_firm_win_percent'] = new_df.loc[(self.df.going == 2) | (
+            self.df.going == 1)].groupby(level=[1])['won'].mean()
+        dam_df['og_heavy_win_percent'] = new_df.loc[(self.df.going == 8) | (self.df.going == 11) | (
+            self.df.going == 12) | (self.df.going == 14)].groupby(level=[1])['won'].mean()
+        dam_df['og_good_soft_win_percent'] = new_df.loc[(self.df.going == 6) | (self.df.going == 20) | (
+            self.df.going == 7) | (self.df.going == 21) | (self.df.going == 18)].groupby(level=[1])['won'].mean()
+        dam_df['og_good_win_percent'] = new_df.loc[(self.df.going == 4) | (
+            self.df.going == 16) | (self.df.going == 17)].groupby(level=[1])['won'].mean()
+        dam_df['og_good_firm_win_percent'] = new_df.loc[(self.df.going == 5) | (
+            self.df.going == 4) | (self.df.going == 2)].groupby(level=[1])['won'].mean()
+        dam_df['og_0_6_win_percent'] = new_df.loc[(self.df.dist_categories >= 0) & (
+            self.df.dist_categories <= 6)].groupby(level=[1])['won'].mean()
+        dam_df['og_7_9_win_percent'] = new_df.loc[(self.df.dist_categories >= 7) & (
+            self.df.dist_categories <= 9)].groupby(level=[1])['won'].mean()
+        dam_df['og_10_13_win_percent'] = new_df.loc[(self.df.dist_categories >= 10) & (
+            self.df.dist_categories <= 13)].groupby(level=[1])['won'].mean()
+        dam_df['og_14_20_win_percent'] = new_df.loc[(self.df.dist_categories >= 14) & (
+            self.df.dist_categories <= 20)].groupby(level=[1])['won'].mean()
+        dam_df['og_21_30_win_percent'] = new_df.loc[(self.df.dist_categories >= 21) & (
+            self.df.dist_categories <= 30)].groupby(level=[1])['won'].mean()
+        dam_df['og_31_40_win_percent'] = new_df.loc[(self.df.dist_categories >= 31) & (
+            self.df.dist_categories <= 40)].groupby(level=[1])['won'].mean()
+
+        dam_df['prog_win_percent'] = self.df.groupby('dam_id')[
+            'dam_win_percent'].mean()
+        dam_df['prog_mean_top_speeds'] = self.df.groupby('dam_id')[
+            'top_speeds'].mean()
+        dam_df['prog_mean_ratings'] = self.df.groupby('dam_id')[
+            'ratings'].mean()
+        dam_df['prog_flat_win_percent'] = self.df.loc[self.df.race_type ==
+                                                      1].groupby('dam_id')['won'].mean()
+        dam_df['prog_chase_win_percent'] = self.df.loc[self.df.race_type ==
+                                                       2].groupby('dam_id')['won'].mean()
+        dam_df['prog_hurdle_win_percent'] = self.df.loc[self.df.race_type ==
+                                                        0].groupby('dam_id')['won'].mean()
+        dam_df['prog_soft_win_percent'] = self.df.loc[(self.df.going == 13) | (
+            self.df.going == 19) | (self.df.going == 14)].groupby('dam_id')['won'].mean()
+        dam_df['prog_firm_win_percent'] = self.df.loc[(self.df.going == 2) | (
+            self.df.going == 1)].groupby('dam_id')['won'].mean()
+        dam_df['prog_heavy_win_percent'] = self.df.loc[(self.df.going == 8) | (self.df.going == 11) | (
+            self.df.going == 12) | (self.df.going == 14)].groupby('dam_id')['won'].mean()
+        dam_df['prog_good_soft_win_percent'] = self.df.loc[(self.df.going == 6) | (self.df.going == 20) | (
+            self.df.going == 7) | (self.df.going == 21) | (self.df.going == 18)].groupby('dam_id')['won'].mean()
+        dam_df['prog_good_win_percent'] = self.df.loc[(self.df.going == 4) | (
+            self.df.going == 16) | (self.df.going == 17)].groupby('dam_id')['won'].mean()
+        dam_df['prog_good_firm_win_percent'] = self.df.loc[(self.df.going == 5) | (
+            self.df.going == 4) | (self.df.going == 2)].groupby('dam_id')['won'].mean()
+        dam_df['prog_0_6_win_percent'] = self.df.loc[(self.df.dist_categories >= 0) & (
+            self.df.dist_categories <= 6)].groupby('dam_id')['won'].mean()
+        dam_df['prog_7_9_win_percent'] = self.df.loc[(self.df.dist_categories >= 7) & (
+            self.df.dist_categories <= 9)].groupby('dam_id')['won'].mean()
+        dam_df['prog_10_13_win_percent'] = self.df.loc[(self.df.dist_categories >= 10) & (
+            self.df.dist_categories <= 13)].groupby('dam_id')['won'].mean()
+        dam_df['prog_14_20_win_percent'] = self.df.loc[(self.df.dist_categories >= 14) & (
+            self.df.dist_categories <= 20)].groupby('dam_id')['won'].mean()
+        dam_df['prog_21_30_win_percent'] = self.df.loc[(self.df.dist_categories >= 21) & (
+            self.df.dist_categories <= 30)].groupby('dam_id')['won'].mean()
+        dam_df['prog_31_40_win_percent'] = self.df.loc[(self.df.dist_categories >= 31) & (
+            self.df.dist_categories <= 40)].groupby('dam_id')['won'].mean()
+
+        def get_sire_stats(row):
+            result = sire_df.loc[row['sire_id']]
+            return result["og_"+going_dict[row['going']]], result["prog_"+going_dict[row['going']]], result["og_"+type_dict[row['race_type']]], result["prog_"+type_dict[row['race_type']]], result["og_"+dist_dict[row['dist_categories']]], result["prog_"+dist_dict[row['dist_categories']]]
+
+        self.df['sire_og_going_win_percent'], self.df['sire_prog_going_win_percent'], self.df['sire_og_type_win_percent'], self.df['sire_prog_type_win_percent'], self.df[
+            'sire_og_dist_win_percent'], self.df['sire_prog_dist_win_percent'] = zip(*self.df.apply(lambda row: get_sire_stats(row), axis=1))
+
+        self.df['dam_og_going_win_percent'], self.df['dam_prog_going_win_percent'], self.df['dam_og_type_win_percent'], self.df['dam_prog_type_win_percent'], self.df[
+            'dam_og_dist_win_percent'], self.df['dam_prog_dist_win_percent'] = zip(*self.df.apply(lambda row: get_sire_stats(row), axis=1))
 
     def preprocess(self):
         runner_df = self.load_file("data/raw/runners_UK2.csv")
@@ -167,9 +370,14 @@ class Preprocessor:
         self.df = self.df.drop_duplicates()
 
         self.fill_nan_with_0()
+        print("FILLED NAN")
         self.compute_horse_features(['going', 'dist'])
+        print("COMPUTED HORSE FEATURES")
         self.compute_features_group()
+        print("COMPUTED PEDIGREE GROUP")
         self.compute_pedigree_group(['sire', 'dam', 'dam_sire'])
+
+        self.df.to_csv("fff.csv")
 
 
 if __name__ == "__main__":
