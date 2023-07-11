@@ -377,6 +377,9 @@ class Preprocessor:
         print("COMPUTED PEDIGREE GROUP")
         self.compute_pedigree_group(['sire', 'dam', 'dam_sire'])
 
+        self.df = self.df.sort_values(by="date")
+        self.df['date_race_id'] = pd.factorize(self.df['race_id'])[0]
+
         self.df.to_csv("fff.csv")
 
 
