@@ -12,6 +12,8 @@ class Preprocessor:
     def __init__(self):
         self.filename = ''
         self.df = None
+        self.filtered_df = None
+        self.horse_history_index_index = None
 
     def load_file(self, filename: str, drop=True):
         if drop:
@@ -321,7 +323,7 @@ class Preprocessor:
         self.df['dam_og_going_win_percent'], self.df['dam_prog_going_win_percent'], self.df['dam_og_type_win_percent'], self.df['dam_prog_type_win_percent'], self.df[
             'dam_og_dist_win_percent'], self.df['dam_prog_dist_win_percent'] = zip(*self.df.apply(lambda row: get_sire_stats(row), axis=1))
 
-    def preprocess(self):
+    def feature_generation(self):
         runner_df = self.load_file("data/raw/runners_UK2.csv")
         race_df = self.load_file("data/raw/races_UK2.csv")
 
@@ -382,7 +384,53 @@ class Preprocessor:
 
         self.df.to_csv("fff.csv")
 
+    def preprocess_columns():
+        max_length = max(self.df['length'])
+        max_places = max(self.df['places']) + 1
+
+        self.df.loc[(self.df.length == 0) & (
+            self.df.won == 0), 'length'] = max_length
+        self.df.loc[(self.df.places == 0) & (
+            self.df.won == 0), 'places'] = max_places
+
+        going_dummy = pd.get_dummies(
+            self.df['going_cat'].astype("category"), prefix="going_")
+        pedigree_dummy = pd.get_dummies(
+            self.df['pedigree_info'].astype("category"), prefix="pedigree_")
+        distance_dummy = pd.get_dummies(
+            self.df['dist_categories'].astype("category"), prefix="dist_")
+
+        self.df = self.df.merge(
+            going_dummy, left_index=True, right_index=True)
+        self.df = self.df.merge(
+            distance_dummy, left_index=True, right_index=True)
+        # self.df = self.df.merge(pedigree_dummy, left_index=True, right_index=True)
+        self.df = self.df.drop(
+            ["going_cat", "dist_categories", "pedigree_info", "date"], axis=1)
+
+    def generate_horse_history_index():
+        # indexes_of_races_for_horse
+        horse_grouped = self.df.groupby('horse_ids')[
+            'date_race_id'].apply(list).to_dict()
+
+        def get_previous_horse_races(row):
+            fl = horse_grouped[row['horse_ids']]
+            return fl[:fl.index(row['date_race_id'])]
+
+        self.horse_history_index = pd.DataFrame(index=self.df.index)
+        self.horse_history_index['race_id'] = self.df['race_id']
+        self.horse_history_index['horse_ids'] = self.df['horse_ids']
+        self.horse_history_index['old_races'] = self.df.apply(
+            get_previous_horse_races, axis=1)
+
+        self.filtered_df = self.df.merge(self.horse_history_index[['race_id', 'horse_ids', 'old_races']], on=[
+            'race_id', 'horse_ids'])  # .iloc[:, 1:] -> unnamed column??
+        self.filtered_df = self.filtered_df[self.filtered_df.old_races.astype(
+            'bool')].drop('old_races', axis=1)
+
+        self.horse_history_index = self.horse_history_index.explode(
+            'date_race_id')
+
 
 if __name__ == "__main__":
     p = Preprocessor()
-    p.preprocess()
