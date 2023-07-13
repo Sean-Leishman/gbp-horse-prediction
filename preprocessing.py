@@ -399,14 +399,31 @@ class Preprocessor:
             self.df['pedigree_info'].astype("category"), prefix="pedigree_")
         distance_dummy = pd.get_dummies(
             self.df['dist_categories'].astype("category"), prefix="dist_")
+        race_class_dummy = pd.get_dummies(
+            fd['race_class'].astype("category"), prefix="race_class_")
+        race_age_dummy = pd.get_dummies(
+            fd['race_age'].astype("category"), prefix="race_age_")
+        draws_dummy = pd.get_dummies(
+            rd['draws'].astype("category"), prefix="draws_")
+        race_type = pd.get_dummies(
+            rd['race_type'].astype("category"), prefix="race_type_")
 
         self.df = self.df.merge(
             going_dummy, left_index=True, right_index=True)
         self.df = self.df.merge(
             distance_dummy, left_index=True, right_index=True)
+        self.df = self.df.merge(
+            race_class_dummy, left_index=True, right_index=True)
+        self.df = self.df.merge(
+            race_age_dummy, left_index=True, right_index=True)
+        self.df = self.df.merge(
+            draws_dummy, left_index=True, right_index=True)
+        self.df = self.df.merge(
+            race_type, left_index=True, right_index=True)
         # self.df = self.df.merge(pedigree_dummy, left_index=True, right_index=True)
         self.df = self.df.drop(
-            ["going_cat", "dist_categories", "pedigree_info", "date"], axis=1)
+            ["going_cat", "dist_categories", "pedigree_info", "date", 'track_id', 'distance', 'going', 'race_class', 'race_handicap', 'race_type', 'draws', 'horse_ages', 'jockey_ids', 'trainer_ids',
+             'sire_id', 'dam_id', 'dam_sire_id', "race_age"], axis=1)
 
     def generate_horse_history_index():
         # indexes_of_races_for_horse
