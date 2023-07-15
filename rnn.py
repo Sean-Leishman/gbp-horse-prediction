@@ -23,13 +23,6 @@ class HorseHistoryDataset(Dataset):
         self.horse_history_index = self.horse_history_index.set_index(
             ["race_id", "horse_ids"])
 
-        print(self.raw_data.shape)
-        print(self.raw_data.columns)
-        print(self.filtered_data.shape)
-        print(self.filtered_data.columns)
-        print(self.horse_history_index.shape)
-        print(self.horse_history_index.columns)
-
         self.transform = transform
 
     def __len__(self) -> int:
@@ -40,7 +33,6 @@ class HorseHistoryDataset(Dataset):
             idx = idx.tolist()
         print("index here:", idx)
         horse = self.filtered_data.iloc[idx]
-        print(horse)
         if self.transform:
             pass
 
@@ -50,11 +42,9 @@ class HorseHistoryDataset(Dataset):
             indexes = [(x, horse.name[1]) for x in hist]
             x_data = torch.tensor(
                 self.raw_data.loc[self.raw_data.index.isin(indexes)].values.astype('float64'))
-            print(x_data)
             # Gets the horse race that is currently occuring. Will be predicting the track stats too
             # Could just extract 'won' variable
             y_data = torch.tensor(horse.values.astype('float64'))
-            print(y_data)
 
         except KeyError as e:
             print("Key Error")
@@ -66,9 +56,9 @@ class HorseHistoryDataset(Dataset):
 class RNN(nn.Module):
     def __init__(self) -> None:
         super(RNN, self).__init__()
-        self.lstm = nn.LSTM(input_size=1, hidden_size=5,
+        self.lstm = nn.LSTM(input_size=178, hidden_size=5,
                             num_layers=1, batch_first=True)
-        self.fs1 = nn.Linear(in_features=5, out_features=5)
+        self.fc1 = nn.Linear(in_features=5, out_features=5)
 
     def forward(self, x):
         output, _status = self.lstm(x)
@@ -88,6 +78,7 @@ def train_model(train_loader, model, test_loader=None):
         num_batches = len(train_loader)
         total_loss = 0
         for X_batch, y_batch in train_loader:
+            print(X_batch)
             y_pred = model(X_batch)
             loss = loss_fn(y_pred, y_batch)
             optimizer.zero_grad()
@@ -118,13 +109,26 @@ def predict(data_loader, model):
     model(data_loader)
 
 
+def collate_fn(batch):
+    batch = [(b[0].tolist(), b[1]) for b in batch]
+    batch.sort(key=lambda x: len(x[0]), reverse=True)
+
+    sequences = [item[0] for item in batch]
+    labels = [item[1] for item in batch]
+
+    sequences_padded = torch.nn.utils.rnn.pad_sequence(
+        [torch.Tensor(s) for s in sequences], batch_first=True, padding_value=0)
+    return sequences_padded, torch.tensor(labels)
+
+
 if __name__ == "__main__":
     filtered_data_file = "data/raw/processed_normalized_full_data_with_horse_history.csv"
     df = pd.read_csv(filtered_data_file, index_col=[0])
     fd_train_data, fd_test_data = train_test_split(df)
 
+    # add collate function
     train_loader = DataLoader(HorseHistoryDataset("data/raw/processed_normalized_full_data_with_features.csv",
-                              "", "data/raw/fff.csv", filtered_data=fd_train_data), shuffle=True, batch_size=32)
+                              "", "data/raw/fff.csv", filtered_data=fd_train_data), shuffle=True, batch_size=16, collate_fn=collate_fn)
     # test_loader = DataLoader(HorseHistoryDataset("data/raw/processed_normalized_full_data_with_features","data/raw/processed_normalized_full_data_with_horse_history", "data/raw/fff.csv", filtered_data=fd_test_data), shuffle=True, batch_size=32)
 
     model = RNN()

@@ -423,7 +423,14 @@ class Preprocessor:
         # self.df = self.df.merge(pedigree_dummy, left_index=True, right_index=True)
         self.df = self.df.drop(
             ["going_cat", "dist_categories", "pedigree_info", "date", 'track_id', 'distance', 'going', 'race_class', 'race_handicap', 'race_type', 'draws', 'horse_ages', 'jockey_ids', 'trainer_ids',
-             'sire_id', 'dam_id', 'dam_sire_id', "race_age"], axis=1)
+             'sire_id', 'dam_id', 'dam_sire_id', "race_age", 'placed', 'places', 'won', 'going__firm_win_percent', 'going__good_win_percent', 'going__heavy_win_percent'], axis=1)
+
+        scale_df_columns = self.df[['horse_weight', 'horse_win_percents', 'jockey_win_percent', 'trainer_win_percent', 'days_since_last_race', 'mean_speed_figures', 'last_figures', 'best_figures_dist', 'best_figures_going', 'top_speeds', 'ratings', 'official_ratings', 'odds', 'days', 'mean_ratings', 'last_ratings', 'last_official_rating', 'difference_in_ratings', 'best_rating_going', 'best_official_rating_going', 'win_percent_going', 'best_rating_dist',
+                                    'best_official_rating_dist', 'win_percent_dist', 'length', 'sire_win_percent', 'dam_win_percent', 'dam_sire_win_percent', 'sire_og_going_win_percent', 'sire_prog_going_win_percent', 'sire_og_type_win_percent', 'sire_prog_type_win_percent', 'sire_og_dist_win_percent', 'sire_prog_dist_win_percent', 'dam_og_going_win_percent', 'dam_prog_going_win_percent', 'dam_og_type_win_percent', 'dam_prog_type_win_percent', 'dam_og_dist_win_percent', 'dam_prog_dist_win_percent']]
+        scaler = StandardScaler()
+        scaled_df = pd.DataFrame(data=scaler.fit_transform(
+            scale_df_columns), index=scale_df_columns.index, columns=scale_df_columns.columns)
+        self.df.update(scaled_df)
 
     def generate_horse_history_index():
         # indexes_of_races_for_horse
