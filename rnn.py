@@ -56,9 +56,9 @@ class HorseHistoryDataset(Dataset):
 class RNN(nn.Module):
     def __init__(self) -> None:
         super(RNN, self).__init__()
-        self.lstm = nn.LSTM(input_size=178, hidden_size=5,
+        self.lstm = nn.LSTM(input_size=178, hidden_size=185,
                             num_layers=1, batch_first=True)
-        self.fc1 = nn.Linear(in_features=5, out_features=5)
+        self.fc1 = nn.Linear(in_features=185, out_features=180)
 
     def forward(self, x):
         output, _status = self.lstm(x)
@@ -80,6 +80,8 @@ def train_model(train_loader, model, test_loader=None):
         for X_batch, y_batch in train_loader:
             print(X_batch)
             y_pred = model(X_batch)
+            print(y_pred.size())
+            print(y_batch.size())
             loss = loss_fn(y_pred, y_batch)
             optimizer.zero_grad()
             loss.backward()
@@ -104,7 +106,7 @@ def train_model(train_loader, model, test_loader=None):
 
 
 def predict(data_loader, model):
-    output = torch.tensor([])
+    output = r([])
     model.eval()
     model(data_loader)
 
@@ -117,8 +119,8 @@ def collate_fn(batch):
     labels = [item[1] for item in batch]
 
     sequences_padded = torch.nn.utils.rnn.pad_sequence(
-        [torch.Tensor(s) for s in sequences], batch_first=True, padding_value=0)
-    return sequences_padded, torch.tensor(labels)
+        [torch.tensor(s) for s in sequences], batch_first=True, padding_value=0)
+    return sequences_padded, torch.stack(labels)
 
 
 if __name__ == "__main__":
