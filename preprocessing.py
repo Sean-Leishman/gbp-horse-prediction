@@ -432,6 +432,11 @@ class Preprocessor:
             scale_df_columns), index=scale_df_columns.index, columns=scale_df_columns.columns)
         self.df.update(scaled_df)
 
+        self.df['offset_horse_id'] = pd.factorize(self.df['horse_ids'])[0]
+        self.df['num_previous_races'] = self.df.groupby('offset_horse_id').cumcount()
+        self.df = self.df.sort_values(by=['offset_horse_id','date_race_id'])
+        self.df = self.df.drop(['index','horse_ids', 'date_race_id'], axis=1)
+
     def generate_horse_history_index():
         # indexes_of_races_for_horse
         horse_grouped = self.df.groupby('horse_ids')[
