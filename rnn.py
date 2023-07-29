@@ -7,48 +7,31 @@ from sklearn.model_selection import train_test_split
 
 from torch import nn
 
+from memory_profiler import profile
 
 class HorseHistoryDataset(Dataset):
-    def __init__(self, raw_data_file, filtered_data_file,  index_file, filtered_data=None, transform=None) -> None:
-        self.raw_data = pd.read_csv(raw_data_file, index_col=[0])
-        if filtered_data_file == "":
-            self.filtered_data = filtered_data
-        else:
-            self.filtered_data = pd.read_csv(filtered_data_file, index_col=[0])
-        self.horse_history_index = pd.read_csv(index_file, index_col=[0])
+    @profile
+    def __init__(self, data_file, transform=None) -> None:
+        df = pd.read_csv(data_file, index_col=[0])
+        
+        self.num_previous_races = torch.tensor(df['num_previous_races'].values)
+        df = df.drop(['num_previous_races', 'offset_horse_id'], axis=1)
 
-        self.raw_data = self.raw_data.set_index(["date_race_id", "horse_ids"])
-        self.filtered_data = self.filtered_data.set_index(
-            ["date_race_id", "horse_ids"])
-        self.horse_history_index = self.horse_history_index.set_index(
-            ["race_id", "horse_ids"])
-
+        self.values = torch.tensor(df.values)
+        
         self.transform = transform
 
     def __len__(self) -> int:
-        return len(self.filtered_data)
+        return len(self.values)
 
     def __getitem__(self, idx):
-        if torch.is_tensor(idx):
-            idx = idx.tolist()
-        print("index here:", idx)
-        horse = self.filtered_data.iloc[idx]
-        if self.transform:
-            pass
-
-        try:
-            hist = self.horse_history_index.loc[(
-                horse.race_id, horse.name[1])]['date_race_id'].values
-            indexes = [(x, horse.name[1]) for x in hist]
-            x_data = torch.tensor(
-                self.raw_data.loc[self.raw_data.index.isin(indexes)].values.astype('float64'))
-            # Gets the horse race that is currently occuring. Will be predicting the track stats too
-            # Could just extract 'won' variable
-            y_data = torch.tensor(horse.values.astype('float64'))
-
-        except KeyError as e:
-            print("Key Error")
-            return None
+        num_races = self.num_previous_races[idx].item()
+        if num_races == 0:
+            x_data = self.values[idx:idx+1]
+            y_data = self.values[idx]
+        else:
+            x_data = self.values[idx - num_races:idx]
+            y_data = self.values[idx]
 
         return x_data, y_data
 
@@ -58,14 +41,13 @@ class RNN(nn.Module):
         super(RNN, self).__init__()
         self.lstm = nn.LSTM(input_size=178, hidden_size=185,
                             num_layers=1, batch_first=True)
-        self.fc1 = nn.Linear(in_features=185, out_features=180)
+        self.fc1 = nn.Linear(in_features=185, out_features=178)
 
     def forward(self, x):
         output, _status = self.lstm(x)
         output = output[:, -1:]
         output = self.fc1(torch.relu(output))
         return output
-
 
 def train_model(train_loader, model, test_loader=None):
     n_epochs = 200
@@ -74,19 +56,22 @@ def train_model(train_loader, model, test_loader=None):
     optimizer = torch.optim.SGD(model.parameters(), lr=0.01)
     model.train()
 
+
     for epoch in range(n_epochs):
+        idx = 0
         num_batches = len(train_loader)
         total_loss = 0
         for X_batch, y_batch in train_loader:
-            print(X_batch)
             y_pred = model(X_batch)
-            print(y_pred.size())
-            print(y_batch.size())
             loss = loss_fn(y_pred, y_batch)
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
             total_loss += loss.item()
+            idx += 1
+
+            if (idx % 1000 == 0):
+                print("1000 BATCHES", idx)
 
         avg_loss = total_loss / num_batches
         print(f"Train loss: {avg_loss}")
@@ -124,16 +109,19 @@ def collate_fn(batch):
 
 
 if __name__ == "__main__":
-    filtered_data_file = "data/raw/processed_normalized_full_data_with_horse_history.csv"
-    df = pd.read_csv(filtered_data_file, index_col=[0])
-    fd_train_data, fd_test_data = train_test_split(df)
-
-    # add collate function
-    train_loader = DataLoader(HorseHistoryDataset("data/raw/processed_normalized_full_data_with_features.csv",
-                              "", "data/raw/fff.csv", filtered_data=fd_train_data), shuffle=True, batch_size=16, collate_fn=collate_fn)
+    print("LOADING DATA ...")
+    dataset = HorseHistoryDataset("data/full_features.csv")
+    print("DATASET LOADED")
+    train_loader = DataLoader(dataset, shuffle=True, batch_size=8, collate_fn=collate_fn,
+                              persistent_workers=True,
+                              num_workers=1)
+    print("LOADED DATA")
     # test_loader = DataLoader(HorseHistoryDataset("data/raw/processed_normalized_full_data_with_features","data/raw/processed_normalized_full_data_with_horse_history", "data/raw/fff.csv", filtered_data=fd_test_data), shuffle=True, batch_size=32)
-
+    
+    print("LOADING RNN ...")
     model = RNN()
+
+    print("TRAINING MODEL ...")
     train_model(train_loader, model)
 
     # X_test, y_test = test_dataset
