@@ -25,30 +25,19 @@ type_dict = {
     2: 'chase_win_percent'
 }
 going_dict = {
-    13: 'soft_win_percent',
-    14: 'soft_win_percent',
-    15: 'soft_win_percent',
-    19: 'soft_win_percent',
-    1: 'firm_win_percent',
-    2: 'firm_win_percent',
-    8: 'heavy_win_percent',
-    9: 'heavy_win_percent',
-    10: 'heavy_win_percent',
-    11: 'heavy_win_percent',
-    12: 'heavy_win_percent',
-    6: 'good_soft_win_percent',
-    7: 'good_soft_win_percent',
-    18: 'good_soft_win_percent',
-    20: 'good_soft_win_percent',
-    21: 'good_soft_win_percent',
     -1: 'good_win_percent',
-    3: 'good_win_percent',
-    4: 'good_win_percent',
-    16: 'good_win_percent',
-    17: 'good_win_percent',
-    5: 'good_firm_win_percent',
-    4: 'good_firm_win_percent',
-    2: 'good_firm_win_percent'
+    0: 'heavy_win_percent',
+    1: 'heavy_win_percent',
+    2: 'heavy_win_percent',
+    3: 'heavy_win_percent',
+    4: 'good_soft_win_percent',
+    5: 'good_soft_win_percent',
+    6: 'good_soft_win_percent',
+    7: 'good_win_percent',
+    8: 'good_win_percent',
+    9: 'good_firm_win_percent',
+    10: 'firm_win_percent',
+    11: 'firm_win_percent',
 }
 
 going_basic_dict = {
@@ -116,4 +105,65 @@ dist_dict = {
     38: '31_40_win_percent',
     39: '31_40_win_percent',
     40: '31_40_win_percent'
+}
+
+race_class_to_scale_dict = {
+    '(Class 7)': 1,
+    '(Class 6)': 2,
+    '(Class 5)': 3,
+    '(Class 4)': 4,
+    '(Class 3)': 5,
+    '(Class 2)': 6,
+    '(Class 1)': 7,
+}
+
+going_to_scale_dict = {
+    'Muddy': 0,
+    'Sloppy': 0,
+    'Very Soft': 1,
+    'Heavy': 1,
+    'Soft To Heavy': 2,
+    'Soft': 3,
+    'Holding':3,
+    'Yielding To Soft': 4,
+    'Good To Soft': 5,
+    'Yielding': 6,
+    'Good To Yielding': 7,
+    'Good':8,
+    'Good To Firm':9,
+    'Firm': 10,
+    'Frozen': 11,
+
+    'Slow': 3,
+    'Sta   ndard To Slow': 5,
+    'Standard To Slow': 5,
+    'Standard': 7,
+    'Standard To Fast': 9,
+    'Fast': 10, 
+
+    'Abandoned': 0,
+}
+
+going_original_name_dict = {
+    'Muddy': 'heavy',
+    'Sloppy': 'heavy',
+    'Very Soft': 'heavy',
+    'Heavy': 'heavy',
+    'Soft To Heavy': 'soft',
+    'Soft': 'soft',
+    'Yielding To Soft': 'good_soft',
+    'Good To Soft': 'good_soft',
+    'Yielding': 'good_soft',
+    'Good To Yielding': 'good',
+    'Good':'good',
+    'Good To Firm':'good_firm',
+    'Firm': 'firm',
+    'Frozen': 'firm',
+
+    'Slow': 'soft',
+    'Sta   ndard To Slow': 'good_soft',
+    'Standard To Slow': 'good_soft',
+    'Standard': 'good',
+    'Fast': 'firm', 
+    'Abandoned': 'firm',
 }
