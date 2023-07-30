@@ -9,8 +9,11 @@ from torch import nn
 
 from memory_profiler import profile
 
+from timeit import default_timer as timer
+
+BATCH_SIZE = 128
+
 class HorseHistoryDataset(Dataset):
-    @profile
     def __init__(self, data_file, transform=None) -> None:
         df = pd.read_csv(data_file, index_col=[0])
         
@@ -39,9 +42,9 @@ class HorseHistoryDataset(Dataset):
 class RNN(nn.Module):
     def __init__(self) -> None:
         super(RNN, self).__init__()
-        self.lstm = nn.LSTM(input_size=178, hidden_size=185,
+        self.lstm = nn.LSTM(input_size=35, hidden_size=12,
                             num_layers=1, batch_first=True)
-        self.fc1 = nn.Linear(in_features=185, out_features=178)
+        self.fc1 = nn.Linear(in_features=12, out_features=35)
 
     def forward(self, x):
         output, _status = self.lstm(x)
@@ -56,12 +59,18 @@ def train_model(train_loader, model, test_loader=None):
     optimizer = torch.optim.SGD(model.parameters(), lr=0.01)
     model.train()
 
+    print(f"Length of train loader: {len(train_loader)}, Number of batches: {len(train_loader) / BATCH_SIZE}")
 
+    sum_t = 0
     for epoch in range(n_epochs):
         idx = 0
         num_batches = len(train_loader)
         total_loss = 0
+
+        start = timer()
         for X_batch, y_batch in train_loader:
+            start_t = timer()
+
             y_pred = model(X_batch)
             loss = loss_fn(y_pred, y_batch)
             optimizer.zero_grad()
@@ -70,11 +79,18 @@ def train_model(train_loader, model, test_loader=None):
             total_loss += loss.item()
             idx += 1
 
+            end_t = timer()
+            sum_t += (end_t - start_t)
+
             if (idx % 1000 == 0):
-                print("1000 BATCHES", idx)
+                end = timer()
+                
+                print(f"Batch Number: {idx}, Time: {end-start}, TrainTime: {sum_t}")
+                start = timer()
+                sum_t = 0
 
         avg_loss = total_loss / num_batches
-        print(f"Train loss: {avg_loss}")
+        print(f"Train loss: {avg_loss}, Batches: {idx}")
 
         model.eval()
         num_batches = len(train_loader)
@@ -82,9 +98,10 @@ def train_model(train_loader, model, test_loader=None):
 
         model.eval()
         with torch.no_grad():
-            for X, y in test_loader:
-                output = model(X)
-                total_loss += loss_fn(output, y).item()
+            pass
+            # for X, y in test_loader:
+            #     output = model(X)
+            #     total_loss += loss_fn(output, y).item()
 
         avg_loss = total_loss / num_batches
         print(f"Test loss: {avg_loss}")
@@ -110,11 +127,11 @@ def collate_fn(batch):
 
 if __name__ == "__main__":
     print("LOADING DATA ...")
-    dataset = HorseHistoryDataset("data/full_features.csv")
+    dataset = HorseHistoryDataset("data/no_cat_full_features.csv")
     print("DATASET LOADED")
-    train_loader = DataLoader(dataset, shuffle=True, batch_size=8, collate_fn=collate_fn,
+    train_loader = DataLoader(dataset, shuffle=True, batch_size=BATCH_SIZE, collate_fn=collate_fn,
                               persistent_workers=True,
-                              num_workers=1)
+                              num_workers=4)
     print("LOADED DATA")
     # test_loader = DataLoader(HorseHistoryDataset("data/raw/processed_normalized_full_data_with_features","data/raw/processed_normalized_full_data_with_horse_history", "data/raw/fff.csv", filtered_data=fd_test_data), shuffle=True, batch_size=32)
     
