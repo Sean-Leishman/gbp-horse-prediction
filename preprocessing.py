@@ -1,6 +1,7 @@
 import pandas as pd
 import numpy as np
 from helper import convertDateToInt, convertStringIntoDate, going_basic_dict, going_dict, dist_dict, type_dict
+from helper import race_class_to_scale_dict, going_to_scale_dict
 from sklearn.linear_model import LinearRegression
 from sklearn.preprocessing import StandardScaler
 
@@ -382,18 +383,8 @@ class Preprocessor:
 
         self.df = self.df.drop_duplicates()
 
-        self.fill_nan_with_0()
-        print("FILLED NAN")
-        self.compute_horse_features(['going', 'dist'])
-        print("COMPUTED HORSE FEATURES")
-        self.compute_features_group()
-        print("COMPUTED PEDIGREE GROUP")
-        self.compute_pedigree_group(['sire', 'dam', 'dam_sire'])
-
         self.df = self.df.sort_values(by="date")
         self.df['date_race_id'] = pd.factorize(self.df['race_id'])[0]
-
-        self.df.to_csv("fff.csv")
 
     def preprocess_columns():
         max_length = max(self.df['length'])
@@ -520,4 +511,4 @@ class Preprocessor:
         print(f"SCALED COLUMNS -> Time: {end-start}")
 
 if __name__ == "__main__":
-    p = Preprocessor().preprocess(merge_df=False, comp_horse_feats=True, comp_aux_feats=True, comp_pedigree_feats=True, scale_columns=True)
+    p = Preprocessor().preprocess(merge_df=True, comp_horse_feats=True, comp_aux_feats=True, comp_pedigree_feats=True, scale_columns=True)
