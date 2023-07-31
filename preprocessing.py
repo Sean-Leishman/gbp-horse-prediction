@@ -4,6 +4,7 @@ from helper import convertDateToInt, convertStringIntoDate, going_basic_dict, go
 from helper import race_class_to_scale_dict, going_to_scale_dict
 from sklearn.linear_model import LinearRegression
 from sklearn.preprocessing import StandardScaler
+from sklearn.model_selection import train_test_split
 
 from timeit import default_timer as timer
 
@@ -381,8 +382,6 @@ class Preprocessor:
        'sire_prog_going_win_percent', 'sire_prog_type_win_percent',
        'sire_prog_dist_win_percent', 'dam_prog_going_win_percent',
        'dam_prog_type_win_percent', 'dam_prog_dist_win_percent']]
-       
-        print(self.df.dtypes)
 
         scale_df_columns = self.df[['distance','going','race_class','draws',
         'horse_ages', 'horse_weight', 'horse_win_percents', 'jockey_win_percent', 
@@ -411,6 +410,12 @@ class Preprocessor:
         self.df['offset_horse_id'] = pd.factorize(self.df['horse_ids'])[0]
         self.df['num_previous_races'] = self.df.groupby('offset_horse_id').cumcount()
         self.df = self.df.sort_values(by=['offset_horse_id','date_race_id'])
+    
+    def train_test_split():
+        train, test = train_test_split(self.df, 0.2)
+        
+        train.to_csv("5-train-data.csv")
+        test.to_csv("5-test-data.csv")
 
     def generate_horse_history_index():
         # indexes_of_races_for_horse
@@ -435,7 +440,7 @@ class Preprocessor:
         self.horse_history_index = self.horse_history_index.explode(
             'date_race_id')
 
-    def preprocess(self, merge_df=False, comp_horse_feats=False, comp_aux_feats=False, comp_pedigree_feats=False, scale_columns=False):
+    def preprocess(self, merge_df=False, comp_horse_feats=False, comp_aux_feats=False, comp_pedigree_feats=False, scale_columns=False, train_test_split=False):
         start = timer()
         if merge_df:
             self.feature_generation()
@@ -479,5 +484,13 @@ class Preprocessor:
         end = timer()
         print(f"SCALED COLUMNS -> Time: {end-start}")
 
+        start = timer()
+        if train_test_split:
+            if self.df is None:
+                self.df = pd.read_csv("data/preprocessing/5-scaled-data.csv", index_col=[0])
+            self.train_test_split()
+        end = timer()
+        print(f"Train test split -> Time: {end-start}") 
+
 if __name__ == "__main__":
-    p = Preprocessor().preprocess(merge_df=False, comp_horse_feats=False, comp_aux_feats=False, comp_pedigree_feats=False, scale_columns=True)
+    p = Preprocessor().preprocess(merge_df=False, comp_horse_feats=False, comp_aux_feats=False, comp_pedigree_feats=False, scale_columns=False, train_test_split=False)
