@@ -109,6 +109,8 @@ class Preprocessor:
                 self.df[f'win_percent_{group_col}'] = self.df.groupby(['horse_ids', group_col])['won'].rolling(
                     max_num_races, closed='left', min_periods=1).mean().reset_index([0, 1], drop=True)
         self.df = self.df.reset_index()
+
+        self.df = self.df.fillna(0)
     
     """
     Generate win percents for jockey & trainer of the current horse
@@ -123,6 +125,8 @@ class Preprocessor:
         self.df['trainer_win_percent'] = self.df.groupby('trainer_ids')['won'].rolling(
             20, closed='left', min_periods=1).mean().reset_index(0, drop=True)
         self.df = self.df.reset_index()
+
+        self.df = self.df.fillna(0)
     """
     Generates dfs for sire and dam for each horse to generate features
     sire_win_percent, dam_win_percent, dam_sire_win_percent
@@ -153,6 +157,14 @@ class Preprocessor:
         sire_df = sire_df.set_index('sire_id')
 
         self.df = self.df.set_index(["race_id", "horse_ids"])
+        new_df = self.df.loc[self.df.index.isin(sire_df.index, level=1)]
+
+        og_win_percent = self.df.loc[self.df.index.isin(sire_df.index, level=1)].groupby(
+            level=[1])['won'].mean()
+        og_top_speeds = self.df.loc[self.df.index.isin(sire_df.index, level=1)].groupby(
+            level=[1])['top_speeds'].mean()
+        og_ratings = self.df.loc[self.df.index.isin(sire_df.index, level=1)].groupby(
+            level=[1])['ratings'].mean()
 
         sire_df['num_runners'] = self.df.groupby('sire_id')['won'].count()
         sire_df['won'] = self.df.groupby('sire_id')['won'].sum()
@@ -181,11 +193,11 @@ class Preprocessor:
         sire_df['mean_ratings'] = self.df.groupby('sire_id')[
             'ratings'].mean()
         
-        sire_df['flat_win_percent'] = self.df.loc[self.df.race_type ==
+        sire_df['prog_flat_win_percent'] = self.df.loc[self.df.race_type ==
                                                        1].groupby('sire_id')['won'].mean()
-        sire_df['chase_win_percent'] = self.df.loc[self.df.race_type ==
+        sire_df['prog_chase_win_percent'] = self.df.loc[self.df.race_type ==
                                                         2].groupby('sire_id')['won'].mean()
-        sire_df['hurdle_win_percent'] = self.df.loc[self.df.race_type ==
+        sire_df['prog_hurdle_win_percent'] = self.df.loc[self.df.race_type ==
                                                          0].groupby('sire_id')['won'].mean()
         
         # Going corresponds to Scale in going_to_scale_dict 
@@ -230,11 +242,11 @@ class Preprocessor:
             'top_speeds'].mean()
         dam_df['mean_ratings'] = self.df.groupby('dam_id')[
             'ratings'].mean()
-        dam_df['flat_win_percent'] = self.df.loc[self.df.race_type ==
+        dam_df['prog_flat_win_percent'] = self.df.loc[self.df.race_type ==
                                                       1].groupby('dam_id')['won'].mean()
-        dam_df['chase_win_percent'] = self.df.loc[self.df.race_type ==
+        dam_df['prog_chase_win_percent'] = self.df.loc[self.df.race_type ==
                                                        2].groupby('dam_id')['won'].mean()
-        dam_df['hurdle_win_percent'] = self.df.loc[self.df.race_type ==
+        dam_df['prog_hurdle_win_percent'] = self.df.loc[self.df.race_type ==
                                                         0].groupby('dam_id')['won'].mean()
         
         # Going corresponds to Scale in going_to_scale_dict 
@@ -262,12 +274,14 @@ class Preprocessor:
                 result[f"og_{type_dict[row['race_type']]}"], result[f"prog_{type_dict[row['race_type']]}"], \
                 result[f"og_{row['distance']}_win_percent"], result[f"prog_{row['distance']}_win_percent"]
 
-        self.df['sire_going_win_percent'], self.df['sire_type_win_percent'],self.df['sire_dist_win_percent'] = zip(*self.df.apply(lambda row: get_sire_stats(row), axis=1))
+        self.df['sire_og_going_win_percent'], self.df['sire_prog_going_win_percent'], self.df['sire_og_type_win_percent'], self.df['sire_prog_type_win_percent'], self.df[
+            'sire_og_dist_win_percent'], self.df['sire_prog_dist_win_percent'] = zip(*self.df.apply(lambda row: get_sire_stats(row), axis=1))
 
         self.df['dam_og_going_win_percent'], self.df['dam_prog_going_win_percent'], self.df['dam_og_type_win_percent'], self.df['dam_prog_type_win_percent'], self.df[
             'dam_og_dist_win_percent'], self.df['dam_prog_dist_win_percent'] = zip(*self.df.apply(lambda row: get_dam_stats(row), axis=1))
 
         self.df = self.df.reset_index()
+        self.df = self.df.fillna(0)
     """ 
     Main entry function to clean data from raw data files and merge into a singular dataframe
     """
@@ -339,15 +353,15 @@ class Preprocessor:
         self.df = self.df.sort_values(by="date")
         self.df['date_race_id'] = pd.factorize(self.df['race_id'])[0]
 
-    def preprocess_columns():
+        self.preprocess_columns()
+
+    def preprocess_columns(self):
         max_length = max(self.df['length'])
         self.df.loc[(self.df.length == 0) & (
             self.df.won == 0), 'length'] = max_length
 
         self.df['days_since_last_race'] = (self.df['date'] - \
             self.df.groupby('horse_ids')['date'].shift()).fillna(0).apply(lambda x:  x.days if x != 0 else 0)
-        
-        print(self.df.columns)
 
     def scale_columns(self):
         self.df = self.df[['horse_ids', 'date_race_id','distance','going','race_class',
@@ -397,7 +411,9 @@ class Preprocessor:
         self.df['offset_horse_id'] = pd.factorize(self.df['horse_ids'])[0]
         self.df['num_previous_races'] = self.df.groupby('offset_horse_id').cumcount()
         self.df = self.df.sort_values(by=['offset_horse_id','date_race_id'])
-        self.df = self.df.drop(['index','horse_ids', 'date_race_id'], axis=1)
+        self.df = self.df.drop(['horse_ids', 'date_race_id'], axis=1)
+
+        self.df = self.df.fillna(0)
 
     def generate_horse_history_index():
         # indexes_of_races_for_horse
@@ -421,6 +437,17 @@ class Preprocessor:
 
         self.horse_history_index = self.horse_history_index.explode(
             'date_race_id')
+    
+    def train_test_split(self):
+        h_train, h_test = train_test_split(self.df.groupby('offset_horse_id').mean().index, test_size=0.2)
+
+        train = self.df.set_index('offset_horse_id').loc[h_train].reset_index()
+        test = self.df.set_index('offset_horse_id').loc[h_test].reset_index()
+
+        self.df = self.df.fillna(0)
+
+        train.to_csv("data/preprocessing/6-train-data.csv")
+        test.to_csv("data/preprocessing/6-test-data.csv")
 
     def preprocess(self, merge_df=False, comp_horse_feats=False, comp_aux_feats=False, comp_pedigree_feats=False, scale_columns=False, train_test_split=False):
         start = timer()
