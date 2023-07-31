@@ -25,6 +25,7 @@ type_dict = {
     2: 'chase_win_percent'
 }
 going_dict = {
+    -1: 'good_win_percent',
     0: 'heavy_win_percent',
     1: 'heavy_win_percent',
     2: 'heavy_win_percent',
@@ -32,6 +33,26 @@ going_dict = {
     4: 'good_soft_win_percent',
     5: 'good_soft_win_percent',
     6: 'good_soft_win_percent',
+    7: 'good_win_percent',
+    8: 'good_win_percent',
+    9: 'good_firm_win_percent',
+    10: 'firm_win_percent',
+    11: 'firm_win_percent',
+}
+
+going_basic_dict = {
+    13: 'heavy_win_percent',
+    14: 'heavy_win_percent',
+    15: 'heavy_win_percent',
+    19: 'heavy_win_percent',
+    1: 'firm_win_percent',
+    2: 'firm_win_percent',
+    8: 'heavy_win_percent',
+    9: 'heavy_win_percent',
+    10: 'heavy_win_percent',
+    11: 'heavy_win_percent',
+    12: 'heavy_win_percent',
+    6: 'good_win_percent',
     7: 'good_win_percent',
     8: 'good_win_percent',
     9: 'good_firm_win_percent',
@@ -97,6 +118,7 @@ going_to_scale_dict = {
     'Heavy': 1,
     'Soft To Heavy': 2,
     'Soft': 3,
+    'Holding':3,
     'Yielding To Soft': 4,
     'Good To Soft': 5,
     'Yielding': 6,
@@ -110,7 +132,9 @@ going_to_scale_dict = {
     'Sta   ndard To Slow': 5,
     'Standard To Slow': 5,
     'Standard': 7,
+    'Standard To Fast': 9,
     'Fast': 10, 
+
     'Abandoned': 0,
 }
 
