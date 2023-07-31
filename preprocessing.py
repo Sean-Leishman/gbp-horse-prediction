@@ -411,11 +411,17 @@ class Preprocessor:
         self.df['num_previous_races'] = self.df.groupby('offset_horse_id').cumcount()
         self.df = self.df.sort_values(by=['offset_horse_id','date_race_id'])
     
-    def train_test_split():
-        train, test = train_test_split(self.df, 0.2)
+    """
+    Splits by grouping horses so that horse history is not split across train, test
+    """
+    def train_test_split(self):
+        h_train, h_test = train_test_split(self.df.groupby('offset_horse_id').mean().index, test_size=0.2)
+
+        train = self.df.set_index('offset_horse_id').loc[h_train].reset_index()
+        test = self.df.set_index('offset_horse_id').loc[h_test].reset_index()
         
-        train.to_csv("5-train-data.csv")
-        test.to_csv("5-test-data.csv")
+        train.to_csv("data/preprocessing/6-train-data.csv")
+        test.to_csv("data/preprocessing/6-test-data.csv")
 
     def generate_horse_history_index():
         # indexes_of_races_for_horse
@@ -493,4 +499,4 @@ class Preprocessor:
         print(f"Train test split -> Time: {end-start}") 
 
 if __name__ == "__main__":
-    p = Preprocessor().preprocess(merge_df=False, comp_horse_feats=False, comp_aux_feats=False, comp_pedigree_feats=False, scale_columns=False, train_test_split=False)
+    p = Preprocessor().preprocess(merge_df=False, comp_horse_feats=False, comp_aux_feats=False, comp_pedigree_feats=False, scale_columns=False, train_test_split=True)
