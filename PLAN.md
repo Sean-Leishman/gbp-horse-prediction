@@ -175,6 +175,34 @@ meetings/events is thinner than it looks.
 5. **Micro-biases** (draw/rail movements, first-time headgear, trainer
    intent) — not standalone edges; fold into Phase 1 features.
 
+### Ways to play the same edge (monetisation of Phase 3 output)
+
+- **Exotics compound the edge** — Benter's actual money-maker: a small win-prob
+  edge multiplies across positions in forecast/tricast/exacta (permutations
+  are hard for casuals, exotic pools are soft). Harville/Henery converts
+  Phase 3 probs to permutation probs for free. Upgrades pools from "nice"
+  to primary target.
+- **Beat the takeable price, not BSP** — early Betfair/bookie prices are much
+  softer than BSP. Phase 2 harness: log model-vs-price at several times of
+  day, not just BSP; edge that exists at 10am and decays to the off is
+  bettable even if the model loses to BSP.
+- **Lay false favourites** — model edge concentrates in "market too
+  confident"; laying overbet horses is the same model with a different bet
+  filter. Evaluate as a filter on Phase 3 output, zero extra cost.
+- **Venue choice** — Smarkets/Matchbook/Betdaq: ~0–2% commission, NO premium
+  charge; thinner books but 2% flat beats Betfair's 20–60% harvest for a
+  winner. Prediction markets (Polymarket sports) another venue — check UK
+  access/legality. Revisit the blanket 20% haircut per venue.
+- **Execution alpha** — make vs take, entry timing, unmatched-at-off policy:
+  worth 1–2% of turnover, can equal the whole model edge. Backtests must not
+  assume perfect fills.
+- **Meta-play: sell the model** — ratings/tools/tips (DataGolf model): a
+  near-miss model still monetises with zero variance, no bans, no premium
+  charge. Fallback, not goal.
+
+Plan is idea-complete. Further insight comes from data (Phase 1 / Track B
+downloads), not more brainstorming.
+
 ## Track B — pre-off price trading (parallel track; needs NO Racing Post data)
 
 Predict Betfair price *moves* in the pre-off window, not race outcomes.
