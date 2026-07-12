@@ -1,0 +1,1 @@
+../Nordorn/07 Projects/gbp-horse-prediction/LOG.md

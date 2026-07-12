@@ -1,10 +1,8 @@
 import pandas as pd
 import numpy as np
-from helper import convertDateToInt, convertStringIntoDate, going_basic_dict, going_dict, dist_dict, type_dict
+from helper import convertStringIntoDate, going_dict
 from helper import race_class_to_scale_dict, going_to_scale_dict
-from sklearn.linear_model import LinearRegression
 from sklearn.preprocessing import StandardScaler
-from sklearn.model_selection import train_test_split
 
 from timeit import default_timer as timer
 
@@ -12,13 +10,32 @@ from timeit import default_timer as timer
 Class for preparing data from raw data to be used by the model
 """
 
+# Model input columns. Everything here is known BEFORE the race starts —
+# current-race top_speeds/ratings/official_ratings, odds and length are
+# outcomes and must never appear in this list.
+FEATURE_COLS = [
+    'distance', 'going', 'race_class',
+    'race_type__0', 'race_type__1', 'race_type__2', 'race_handicap',
+    'draws', 'horse_ages', 'horse_weight', 'horse_win_percents',
+    'jockey_win_percent', 'trainer_win_percent', 'days_since_last_race',
+    'last_figures', 'last_ratings', 'last_official_ratings',
+    'mean_figures', 'mean_ratings',
+    'best_figures_going', 'best_rating_going',
+    'best_official_rating_going', 'win_percent_going',
+    'best_figures_distance', 'best_rating_distance',
+    'best_official_rating_distance', 'win_percent_distance',
+    'elo_rating',
+    'sire_win_percent', 'dam_win_percent', 'dam_sire_win_percent',
+    'sire_prog_going_win_percent', 'sire_prog_type_win_percent',
+    'sire_prog_dist_win_percent',
+    'dam_prog_going_win_percent', 'dam_prog_type_win_percent',
+    'dam_prog_dist_win_percent',
+]
+
 
 class Preprocessor:
     def __init__(self):
-        self.filename = ''
         self.df = None
-        self.filtered_df = None
-        self.horse_history_index_index = None
 
     def load_file(self, filename: str, drop=True):
         if drop:
@@ -27,45 +44,6 @@ class Preprocessor:
 
     def fill_nan_with_0(self):
         self.df = self.df.fillna(0)
-
-    def fill_nan_with_lr(self):
-        train_rating = self.df.loc[self.df.feature_name != 0]
-        predict_of = self.df.loc[(self.df.ratings != 0) & (
-            self.df.top_speeds != 0) & (self.df.official_ratings == 0)]
-        predict_speed_on_rating = self.df.loc[(
-            self.df.ratings == 0) & (self.df.top_speeds != 0)]
-
-        train_data = self.df.loc[(self.df.ratings != 0) & (
-            self.df.top_speeds != 0) & (self.df.official_ratings != 0)]
-
-        # top_speeds nan fill
-        train_rating = self.df.loc[self.df.top_speeds != 0]
-
-        predict_rating_on_speed = self.df.loc[(
-            self.df.ratings != 0) & (self.df.top_speeds == 0)]
-        predict_speed_on_rating = self.df.loc[(
-            self.df.ratings == 0) & (self.df.top_speeds != 0)]
-
-        train_data = self.df.loc[(self.df.ratings != 0)
-                                 & (self.df.top_speeds != 0)]
-
-        model = LinearRegression()
-        model.fit(train_data[['top_speeds', 'ratings']].values,
-                  train_data['official_ratings'].values.reshape(-1, 1))
-        pred = model.predict(predict_of[['top_speeds', 'ratings']].values)
-        self.df.loc[predict_of.index, 'official_ratings'] = pred.flatten()
-
-        pred = model.predict(
-            predict_rating_on_speed['ratings'].values.reshape(-1, 1))
-        self.df.loc[predict_rating_on_speed.index,
-                    'top_speeds'] = pred.flatten()
-
-        model = LinearRegression()
-        model.fit(train_data['top_speeds'].values.reshape(-1, 1),
-                  train_data['ratings'].values.reshape(-1, 1))
-        pred = model.predict(
-            predict_speed_on_rating['top_speeds'].values.reshape(-1, 1))
-        self.df.loc[predict_speed_on_rating.index, 'ratings'] = pred.flatten()
 
     """
     Generate horse features that are based on their history:
@@ -111,13 +89,37 @@ class Preprocessor:
         self.df = self.df.reset_index()
 
         self.df = self.df.fillna(0)
-    
+        self.compute_elo_ratings()
+
     """
-    Generate win percents for jockey & trainer of the current horse
+    Elo rating per horse from finishing order. 'elo_rating' is the horse's
+    rating BEFORE the race, so it is past-only by construction. Score is the
+    fraction of the field beaten; expected score comes from pairwise Elo
+    win probabilities against the rest of the field.
     """
+    def compute_elo_ratings(self, k=32):
+        self.df = self.df.sort_values('date_race_id')
+        ratings = {}
+        pre_race = np.empty(len(self.df))
+        pos = 0
+        for _, grp in self.df.groupby('date_race_id', sort=True):
+            ids = grp['horse_ids'].values
+            n = len(ids)
+            r = np.array([ratings.get(h, 1500.0) for h in ids])
+            pre_race[pos:pos + n] = r
+            pos += n
+            if n < 2:
+                continue
+            rank = grp['places'].rank(method='average').values
+            score = (n - rank) / (n - 1)
+            expected = (1.0 / (1.0 + 10.0 ** ((r[None, :] - r[:, None]) / 400.0))).sum(axis=1)
+            expected = (expected - 0.5) / (n - 1)  # drop self-match (diagonal = 0.5)
+            for h, new in zip(ids, r + k * (score - expected)):
+                ratings[h] = new
+        self.df['elo_rating'] = pre_race
     def compute_auxillary_features_group(self):
         self.df = self.df.set_index(['jockey_ids', 'horse_ids', 'race_id'])
-        self.df['jockey_win_percent'] = self.df.groupby('trainer_ids')['won'].rolling(
+        self.df['jockey_win_percent'] = self.df.groupby('jockey_ids')['won'].rolling(
             20, closed='left', min_periods=1).mean().reset_index(0, drop=True)
 
         self.df = self.df.reset_index()
@@ -128,160 +130,44 @@ class Preprocessor:
 
         self.df = self.df.fillna(0)
     """
-    Generates dfs for sire and dam for each horse to generate features
-    sire_win_percent, dam_win_percent, dam_sire_win_percent
-
-    Then depending on the current race stats such as going & distance, win percents
-    for the dam and sire at the current going/distance are calculated
-
+    Progeny win percents for sire/dam/dam-sire, computed from PAST races only:
+    overall, and conditioned on the current race's going band, race type and
+    distance band. For each row this is "win % of this parent's offspring in
+    races strictly before today's race".
     """
+    def _past_win_percent(self, group_cols):
+        g = self.df.groupby(group_cols, sort=False)['won']
+        # cumulative wins/starts up to but excluding the current row
+        # ponytail: two same-parent runners in one race see each other's result;
+        # negligible — aggregate per (parent, race) first if it ever matters
+        return (g.cumsum() - self.df['won']) / g.cumcount()
+
     def compute_pedigree_group(self):
-        sire_win_percent = self.df.groupby("sire_id")['won'].mean().fillna(
-            value=0)._append(pd.Series(0))
-        dam_win_percent = self.df.groupby("dam_id")['won'].mean().fillna(
-            value=0)._append(pd.Series(0))
-        dam_sire_win_percent = self.df.groupby(
-            "dam_sire_id")['won'].mean().fillna(value=0)._append(pd.Series(0))
-
+        self.df = self.df.sort_values('date')
         self.df[['sire_id', 'dam_id', 'dam_sire_id']] = self.df[[
-            'sire_id', 'dam_id', 'dam_sire_id']].fillna(value=0)
-        self.df['sire_win_percent'] = self.df.apply(
-            lambda row: sire_win_percent[row['sire_id']], axis=1)
-        self.df['dam_win_percent'] = self.df.apply(
-            lambda row: dam_win_percent[row['dam_id']], axis=1)
-        self.df['dam_sire_win_percent'] = self.df.apply(
-            lambda row: dam_sire_win_percent[row['dam_sire_id']], axis=1)
+            'sire_id', 'dam_id', 'dam_sire_id']].fillna(0)
 
-        sire_df = pd.DataFrame(
-            data=self.df['sire_id'].unique(), columns=["sire_id"])
-        sire_df = sire_df.set_index('sire_id')
+        self.df['going_band'] = self.df['going'].map(going_dict)
 
-        self.df = self.df.set_index(["race_id", "horse_ids"])
-        new_df = self.df.loc[self.df.index.isin(sire_df.index, level=1)]
+        self.df['sire_win_percent'] = self._past_win_percent(['sire_id'])
+        self.df['dam_win_percent'] = self._past_win_percent(['dam_id'])
+        self.df['dam_sire_win_percent'] = self._past_win_percent(['dam_sire_id'])
 
-        og_win_percent = self.df.loc[self.df.index.isin(sire_df.index, level=1)].groupby(
-            level=[1])['won'].mean()
-        og_top_speeds = self.df.loc[self.df.index.isin(sire_df.index, level=1)].groupby(
-            level=[1])['top_speeds'].mean()
-        og_ratings = self.df.loc[self.df.index.isin(sire_df.index, level=1)].groupby(
-            level=[1])['ratings'].mean()
+        for parent in ('sire', 'dam'):
+            self.df[f'{parent}_prog_going_win_percent'] = self._past_win_percent(
+                [f'{parent}_id', 'going_band'])
+            self.df[f'{parent}_prog_type_win_percent'] = self._past_win_percent(
+                [f'{parent}_id', 'race_type'])
+            self.df[f'{parent}_prog_dist_win_percent'] = self._past_win_percent(
+                [f'{parent}_id', 'distance_categories'])
 
-        sire_df['num_runners'] = self.df.groupby('sire_id')['won'].count()
-        sire_df['won'] = self.df.groupby('sire_id')['won'].sum()
-        sire_df['og_win_percent'] = og_win_percent
-        sire_df['og_mean_top_speeds'] = og_top_speeds
-        sire_df['og_mean_ratings'] = og_ratings
-        sire_df['og_flat_win_percent'] = new_df.loc[self.df.race_type == 1].groupby(level=[
-            1])['won'].mean()
-        sire_df['og_chase_win_percent'] = new_df.loc[self.df.race_type == 2].groupby(level=[
-            1])['won'].mean()
-        sire_df['og_hurdle_win_percent'] = new_df.loc[self.df.race_type == 0].groupby(level=[
-            1])['won'].mean()
-            
-        # Going corresponds to Scale in going_to_scale_dict 
-        sire_df['og_firm_win_percent'] = new_df.loc[(self.df.going >= 10)].groupby(level=[1])['won'].mean()
-        sire_df['og_heavy_win_percent'] = new_df.loc[(self.df.going <= 3)].groupby(level=[1])['won'].mean()
-        sire_df['og_good_soft_win_percent'] = new_df.loc[(self.df.going <= 6) & (self.df.going > 3)].groupby(level=[1])['won'].mean()
-        sire_df['og_good_win_percent'] = new_df.loc[(self.df.going <= 8) & (self.df.going > 6)].groupby(level=[1])['won'].mean()
-        sire_df['og_good_firm_win_percent'] = new_df.loc[(self.df.going > 8) & (self.df.going < 10)].groupby(level=[1])['won'].mean()
-        
-
-        sire_df['win_percent'] = self.df.groupby(
-            'sire_id')['sire_win_percent'].mean()
-        sire_df['mean_top_speeds'] = self.df.groupby('sire_id')[
-            'top_speeds'].mean()
-        sire_df['mean_ratings'] = self.df.groupby('sire_id')[
-            'ratings'].mean()
-        
-        sire_df['prog_flat_win_percent'] = self.df.loc[self.df.race_type ==
-                                                       1].groupby('sire_id')['won'].mean()
-        sire_df['prog_chase_win_percent'] = self.df.loc[self.df.race_type ==
-                                                        2].groupby('sire_id')['won'].mean()
-        sire_df['prog_hurdle_win_percent'] = self.df.loc[self.df.race_type ==
-                                                         0].groupby('sire_id')['won'].mean()
-        
-        # Going corresponds to Scale in going_to_scale_dict 
-        sire_df['prog_firm_win_percent'] = self.df.loc[(self.df.going >= 10)].groupby('sire_id')['won'].mean()
-        sire_df['prog_heavy_win_percent'] = self.df.loc[(self.df.going <= 3)].groupby('sire_id')['won'].mean()
-        sire_df['prog_good_soft_win_percent'] = self.df.loc[(self.df.going <= 6) & (self.df.going > 3)].groupby('sire_id')['won'].mean()
-        sire_df['prog_good_win_percent'] = self.df.loc[(self.df.going <= 8) & (self.df.going > 6)].groupby('sire_id')['won'].mean()
-        sire_df['prog_good_firm_win_percent'] = self.df.loc[(self.df.going > 8) & (self.df.going < 10)].groupby('sire_id')['won'].mean()
-        
-        for x in self.df['distance'].unique():
-            sire_df[f'og_{x}_win_percent'] = new_df.loc[(self.df.distance == x)].groupby('sire_id')['won'].mean()
-            sire_df[f'prog_{x}_win_percent'] = self.df.loc[(self.df.distance == x)].groupby('sire_id')['won'].mean()
-        
-        sire_df = sire_df.fillna(0)
-
-        dam_df = pd.DataFrame(
-            data=self.df['dam_id'].unique(), columns=["dam_id"])
-        dam_df = dam_df.set_index('dam_id')
-
-        dam_df['num_runners'] = self.df.groupby('dam_id')['won'].count()
-        dam_df['won'] = self.df.groupby('dam_id')['won'].sum()
-        dam_df['og_win_percent'] = og_win_percent
-        dam_df['og_mean_top_speeds'] = og_top_speeds
-        dam_df['og_mean_ratings'] = og_ratings
-        dam_df['og_flat_win_percent'] = new_df.loc[self.df.race_type == 1].groupby(level=[
-            1])['won'].mean()
-        dam_df['og_chase_win_percent'] = new_df.loc[self.df.race_type == 2].groupby(level=[
-            1])['won'].mean()
-        dam_df['og_hurdle_win_percent'] = new_df.loc[self.df.race_type == 0].groupby(level=[
-            1])['won'].mean()
-        
-        # Going corresponds to Scale in going_to_scale_dict 
-        dam_df['og_firm_win_percent'] = new_df.loc[(self.df.going >= 10)].groupby(level=[1])['won'].mean()
-        dam_df['og_heavy_win_percent'] = new_df.loc[(self.df.going <= 3)].groupby(level=[1])['won'].mean()
-        dam_df['og_good_soft_win_percent'] = new_df.loc[(self.df.going <= 6) & (self.df.going > 3)].groupby(level=[1])['won'].mean()
-        dam_df['og_good_win_percent'] = new_df.loc[(self.df.going <= 8) & (self.df.going > 6)].groupby(level=[1])['won'].mean()
-        dam_df['og_good_firm_win_percent'] = new_df.loc[(self.df.going > 8) & (self.df.going < 10)].groupby(level=[1])['won'].mean()
-
-        dam_df['win_percent'] = self.df.groupby('dam_id')[
-            'dam_win_percent'].mean()
-        dam_df['mean_top_speeds'] = self.df.groupby('dam_id')[
-            'top_speeds'].mean()
-        dam_df['mean_ratings'] = self.df.groupby('dam_id')[
-            'ratings'].mean()
-        dam_df['prog_flat_win_percent'] = self.df.loc[self.df.race_type ==
-                                                      1].groupby('dam_id')['won'].mean()
-        dam_df['prog_chase_win_percent'] = self.df.loc[self.df.race_type ==
-                                                       2].groupby('dam_id')['won'].mean()
-        dam_df['prog_hurdle_win_percent'] = self.df.loc[self.df.race_type ==
-                                                        0].groupby('dam_id')['won'].mean()
-        
-        # Going corresponds to Scale in going_to_scale_dict 
-        dam_df['prog_firm_win_percent'] = self.df.loc[(self.df.going >= 10)].groupby('dam_id')['won'].mean()
-        dam_df['prog_heavy_win_percent'] = self.df.loc[(self.df.going <= 3)].groupby('dam_id')['won'].mean()
-        dam_df['prog_good_soft_win_percent'] = self.df.loc[(self.df.going <= 6) & (self.df.going > 3)].groupby('dam_id')['won'].mean()
-        dam_df['prog_good_win_percent'] = self.df.loc[(self.df.going <= 8) & (self.df.going > 6)].groupby('dam_id')['won'].mean()
-        dam_df['prog_good_firm_win_percent'] = self.df.loc[(self.df.going > 8) & (self.df.going < 10)].groupby('dam_id')['won'].mean()
-        
-        for x in self.df['distance'].unique():
-            dam_df[f'og_{x}_win_percent'] = new_df.loc[(new_df.distance == x)].groupby('dam_id')['won'].mean()
-            dam_df[f'prog_{x}_win_percent'] = self.df.loc[(self.df.distance == x)].groupby('dam_id')['won'].mean()
-
-        dam_df = dam_df.fillna(0)
-
-        def get_sire_stats(row):
-            result = sire_df.loc[row['sire_id']]
-            return result[f"og_{going_dict[row['going']]}"], result[f"prog_{going_dict[row['going']]}"], \
-                result[f"og_{type_dict[row['race_type']]}"], result[f"prog_{type_dict[row['race_type']]}"], \
-                result[f"og_{row['distance']}_win_percent"], result[f"prog_{row['distance']}_win_percent"]
-        
-        def get_dam_stats(row):
-            result = dam_df.loc[row['dam_id']]
-            return result[f"og_{going_dict[row['going']]}"], result[f"prog_{going_dict[row['going']]}"], \
-                result[f"og_{type_dict[row['race_type']]}"], result[f"prog_{type_dict[row['race_type']]}"], \
-                result[f"og_{row['distance']}_win_percent"], result[f"prog_{row['distance']}_win_percent"]
-
-        self.df['sire_og_going_win_percent'], self.df['sire_prog_going_win_percent'], self.df['sire_og_type_win_percent'], self.df['sire_prog_type_win_percent'], self.df[
-            'sire_og_dist_win_percent'], self.df['sire_prog_dist_win_percent'] = zip(*self.df.apply(lambda row: get_sire_stats(row), axis=1))
-
-        self.df['dam_og_going_win_percent'], self.df['dam_prog_going_win_percent'], self.df['dam_og_type_win_percent'], self.df['dam_prog_type_win_percent'], self.df[
-            'dam_og_dist_win_percent'], self.df['dam_prog_dist_win_percent'] = zip(*self.df.apply(lambda row: get_dam_stats(row), axis=1))
-
-        self.df = self.df.reset_index()
+        # ponytail: og_* features (the parent's own racing record) dropped — the
+        # old computation averaged over the whole dataset (future leakage) and a
+        # parent's own races mostly predate the data anyway. Re-add as a static
+        # per-horse career lookup if they earn their keep.
+        self.df = self.df.drop('going_band', axis=1)
         self.df = self.df.fillna(0)
+
     """ 
     Main entry function to clean data from raw data files and merge into a singular dataframe
     """
@@ -291,8 +177,6 @@ class Preprocessor:
 
         race_df = race_df[race_df['date'].notna()]
 
-        # track_id should be track_name
-        race_df.rename(columns={0: 'race_id'})
         race_df = race_df.drop('track_name', axis=1)
 
         race_df['race_class'] = race_df['race_class'].replace(race_class_to_scale_dict)
@@ -320,7 +204,8 @@ class Preprocessor:
         runner_df['horse_ages'] = np.abs(runner_df['horse_ages'])
         runner_df['horse_ages'] = pd.qcut(runner_df['horse_ages'], q=5, labels=False)
         runner_df['draws'] = pd.qcut(runner_df['draws'], q=10, labels=False)
-        runner_df['draws'] = runner_df['draws'].replace({np.isnan, np.random.randint(0,12)})
+        # no draw (jumps races have no stalls) -> sentinel, not a random value
+        runner_df['draws'] = runner_df['draws'].fillna(-1)
 
         runner_df = runner_df.drop('horse_names', axis=1)
         runner_df['places'].replace({"F": 0, 'PU': 0, "DSQ": 0, 'SU':  0, 'BD': 0, 'UR': 0, 'RO': 0, 'RR': 0, 'REF': 0,
@@ -363,93 +248,34 @@ class Preprocessor:
         self.df['days_since_last_race'] = (self.df['date'] - \
             self.df.groupby('horse_ids')['date'].shift()).fillna(0).apply(lambda x:  x.days if x != 0 else 0)
 
-    def scale_columns(self):
-        self.df = self.df[['horse_ids', 'date_race_id','distance','going','race_class',
-        'race_type__0', 'race_type__1','race_type__2', 'race_handicap' ,
-        'draws','horse_ages', 'horse_weight', 'horse_win_percents', 
-        'jockey_win_percent', 'trainer_win_percent', 'days_since_last_race', 
-        'mean_speed_figures', 'last_figures','best_figures_dist', 
-        'best_figures_going', 'top_speeds', 'ratings',
-       'official_ratings', 'odds', 'length','last_ratings', 
-       'last_official_ratings', 'mean_figures', 'mean_ratings',
-       'best_rating_going', 'best_official_rating_going', 'win_percent_going',
-       'best_figures_distance', 'best_rating_distance',
-       'best_official_rating_distance', 'win_percent_distance',
-       'sire_win_percent', 'dam_win_percent', 'dam_sire_win_percent',
-       'sire_og_going_win_percent', 'sire_og_type_win_percent',
-       'sire_og_dist_win_percent', 'dam_og_going_win_percent',
-       'dam_og_type_win_percent', 'dam_og_dist_win_percent',
+    def select_columns(self):
+        # 'odds' is kept as a market benchmark to evaluate against — it is NOT
+        # a model input (it encodes the outcome the market already knows)
+        self.df = self.df[['horse_ids', 'date_race_id', 'won', 'odds'] + FEATURE_COLS].copy()
+        self.df = self.df.fillna(0)
 
-       'sire_prog_going_win_percent', 'sire_prog_type_win_percent',
-       'sire_prog_dist_win_percent', 'dam_prog_going_win_percent',
-       'dam_prog_type_win_percent', 'dam_prog_dist_win_percent']]
-
-        scale_df_columns = self.df[['distance','going','race_class','draws',
-        'horse_ages', 'horse_weight', 'horse_win_percents', 'jockey_win_percent', 
-        'trainer_win_percent', 'days_since_last_race',  'mean_speed_figures', 
-        'last_figures',
-       'best_figures_dist', 'best_figures_going', 'top_speeds', 'ratings',
-       'official_ratings', 'odds', 'length','last_ratings', 'last_official_ratings', 
-       'mean_figures', 'mean_ratings',
-       'best_rating_going', 'best_official_rating_going', 'win_percent_going',
-       'best_figures_distance', 'best_rating_distance',
-       'best_official_rating_distance', 'win_percent_distance',
-       'sire_win_percent', 'dam_win_percent', 'dam_sire_win_percent',
-       'sire_og_going_win_percent', 'sire_og_type_win_percent',
-       'sire_og_dist_win_percent', 'dam_og_going_win_percent',
-       'dam_og_type_win_percent', 'dam_og_dist_win_percent',
-
-       'sire_prog_going_win_percent', 'sire_prog_type_win_percent',
-       'sire_prog_dist_win_percent', 'dam_prog_going_win_percent',
-       'dam_prog_type_win_percent', 'dam_prog_dist_win_percent']]
-
-        scaler = StandardScaler()
-        scaled_df = pd.DataFrame(data=scaler.fit_transform(
-            scale_df_columns), index=scale_df_columns.index, columns=scale_df_columns.columns)
-        self.df.update(scaled_df)
-
+        # order rows (horse, date) so a horse's history is a contiguous slice
+        # ending just above its current row — the model dataset relies on this
+        self.df = self.df.sort_values(by='date_race_id')
         self.df['offset_horse_id'] = pd.factorize(self.df['horse_ids'])[0]
+        self.df = self.df.sort_values(by=['offset_horse_id', 'date_race_id'])
         self.df['num_previous_races'] = self.df.groupby('offset_horse_id').cumcount()
-        self.df = self.df.sort_values(by=['offset_horse_id','date_race_id'])
-        self.df = self.df.drop(['horse_ids', 'date_race_id'], axis=1)
+        self.df = self.df.drop('horse_ids', axis=1)
 
-        self.df = self.df.fillna(0)
-
-    def generate_horse_history_index():
-        # indexes_of_races_for_horse
-        horse_grouped = self.df.groupby('horse_ids')[
-            'date_race_id'].apply(list).to_dict()
-
-        def get_previous_horse_races(row):
-            fl = horse_grouped[row['horse_ids']]
-            return fl[:fl.index(row['date_race_id'])]
-
-        self.horse_history_index = pd.DataFrame(index=self.df.index)
-        self.horse_history_index['race_id'] = self.df['race_id']
-        self.horse_history_index['horse_ids'] = self.df['horse_ids']
-        self.horse_history_index['old_races'] = self.df.apply(
-            get_previous_horse_races, axis=1)
-
-        self.filtered_df = self.df.merge(self.horse_history_index[['race_id', 'horse_ids', 'old_races']], on=[
-            'race_id', 'horse_ids'])  # .iloc[:, 1:] -> unnamed column??
-        self.filtered_df = self.filtered_df[self.filtered_df.old_races.astype(
-            'bool')].drop('old_races', axis=1)
-
-        self.horse_history_index = self.horse_history_index.explode(
-            'date_race_id')
-    
     def train_test_split(self):
-        h_train, h_test = train_test_split(self.df.groupby('offset_horse_id').mean().index, test_size=0.2)
+        """Temporal split: last 20% of races are test. The scaler is fit on
+        train rows only. One file is written; test rows are flagged so the
+        model can still read a horse's pre-cutoff history at test time
+        (that history is legitimately in the past, not leakage)."""
+        cutoff = self.df['date_race_id'].quantile(0.8)
+        self.df['is_test'] = self.df['date_race_id'] > cutoff
 
-        train = self.df.set_index('offset_horse_id').loc[h_train].reset_index()
-        test = self.df.set_index('offset_horse_id').loc[h_test].reset_index()
+        scaler = StandardScaler().fit(self.df.loc[~self.df.is_test, FEATURE_COLS])
+        self.df[FEATURE_COLS] = scaler.transform(self.df[FEATURE_COLS])
 
-        self.df = self.df.fillna(0)
+        self.df.to_csv("data/preprocessing/6-model-data.csv")
 
-        train.to_csv("data/preprocessing/6-train-data.csv")
-        test.to_csv("data/preprocessing/6-test-data.csv")
-
-    def preprocess(self, merge_df=False, comp_horse_feats=False, comp_aux_feats=False, comp_pedigree_feats=False, scale_columns=False, train_test_split=False):
+    def preprocess(self, merge_df=False, comp_horse_feats=False, comp_aux_feats=False, comp_pedigree_feats=False, select_columns=False, train_test_split=False):
         start = timer()
         if merge_df:
             self.feature_generation()
@@ -485,21 +311,21 @@ class Preprocessor:
         print(f"COMPUTED PEDIGREE GROUP -> Time: {end-start}")
 
         start = timer()
-        if scale_columns:
+        if select_columns:
             if self.df is None:
                 self.df = pd.read_csv("data/preprocessing/4-pedigree-group.csv", index_col=[0])
-            self.scale_columns()
-            self.df.to_csv("data/preprocessing/5-scaled-data.csv")
+            self.select_columns()
+            self.df.to_csv("data/preprocessing/5-selected-data.csv")
         end = timer()
-        print(f"SCALED COLUMNS -> Time: {end-start}")
+        print(f"SELECTED COLUMNS -> Time: {end-start}")
 
         start = timer()
         if train_test_split:
             if self.df is None:
-                self.df = pd.read_csv("data/preprocessing/5-scaled-data.csv", index_col=[0])
+                self.df = pd.read_csv("data/preprocessing/5-selected-data.csv", index_col=[0])
             self.train_test_split()
         end = timer()
-        print(f"Train test split -> Time: {end-start}") 
+        print(f"Train test split -> Time: {end-start}")
 
 if __name__ == "__main__":
-    p = Preprocessor().preprocess(merge_df=False, comp_horse_feats=False, comp_aux_feats=False, comp_pedigree_feats=False, scale_columns=False, train_test_split=True)
+    p = Preprocessor().preprocess(merge_df=True, comp_horse_feats=True, comp_aux_feats=True, comp_pedigree_feats=True, select_columns=True, train_test_split=True)
