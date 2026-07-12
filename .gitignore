@@ -5,3 +5,9 @@ __pycache__/
 .vscode/
 data/
 .idea/
+# memory files are symlinks into the vault (canonical there)
+Notes.md
+LOG.md
+PLAN.md
+DECISIONS.md
+Todo.md
