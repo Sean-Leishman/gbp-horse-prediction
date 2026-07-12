@@ -14,6 +14,25 @@ cannot reason about what it cannot see. The repo gitignores these paths for that
 - `PLAN.md`      — active plan for in-flight work (absent when nothing's in flight).
 - `DECISIONS.md` — load-bearing decisions; each carries the constraint it implies.
 
+## The vault is reachable from this repo
+
+`.vault/` is a symlink to the second-brain vault root (gitignored — local only). Every vault
+path in this file resolves through it, so read them directly rather than guessing:
+
+- `.vault/04 Indexes/Working with Claude.md` — how the vault operates. **Read this before
+  writing anything into the vault.**
+- `.vault/CLAUDE.md` — the vault's binding contract (raw layers are read-only; Base Notes are
+  proposed, never silently created).
+- `.vault/00 Vault Guide.md` — folder purposes, capture pipeline, note types.
+- `.vault/08 Trackers/Current WIP.md` — the board. What the user is actually meant to do next.
+- `.vault/04 Indexes/Wiki Index.md` — catalog of what the wiki already knows. Check here
+  before concluding something is a new idea.
+- `.vault/05 Base Notes/` — synthesised knowledge. Link to a Base Note rather than restating it.
+
+The vault's rules bind you when you write into it: don't touch `01 Fleeting Notes/`,
+`02 Sources/` or `06 Daily Notes/` (raw, read-only), and *propose* Base Notes rather than
+creating them silently.
+
 ## Session start — read before acting
 
 1. Read `Notes.md`, the top 2–3 `LOG.md` entries, and `PLAN.md` if present.
