@@ -8,10 +8,12 @@ set, and draw/form are already features.
 Same objective and benchmark as logit_baseline.py, so the numbers compare
 directly: test log-loss per race vs the market's odds-implied log-loss.
 """
+import copy
+
 import pandas as pd
 import torch
 from torch import nn
-from torch.utils.data import Dataset, DataLoader
+from torch.utils.data import Dataset, DataLoader, Subset
 
 from rnn import DATA_FILE, META_COLS
 
@@ -86,8 +88,13 @@ def market_log_loss(dataset):
     return total / len(dataset.races)
 
 
-def train_model(model, train_loader, test_loader, n_epochs=20):
+def train_model(model, train_loader, val_loader, n_epochs=20):
+    """Early-stop on validation, then restore the best weights. This model
+    overfits from ~epoch 7 (train keeps falling, held-out loss rises), so the
+    last epoch is NOT the result — and selecting the best epoch on *test*
+    would be scoring against the set we tune on."""
     optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
+    best_loss, best_state, best_epoch = float('inf'), None, -1
     for epoch in range(n_epochs):
         model.train()
         total, n = 0.0, 0
@@ -98,19 +105,39 @@ def train_model(model, train_loader, test_loader, n_epochs=20):
             optimizer.step()
             total += loss.item() * len(winner)
             n += len(winner)
-        test_loss, test_acc = evaluate(model, test_loader)
+        val_loss, val_acc = evaluate(model, val_loader)
+        if val_loss < best_loss:
+            best_loss, best_epoch = val_loss, epoch
+            best_state = copy.deepcopy(model.state_dict())
         print(f"epoch {epoch}: train {total / n:.4f}, "
-              f"test log-loss {test_loss:.4f}, winner-pick acc {test_acc:.3f}")
+              f"val log-loss {val_loss:.4f}, winner-pick acc {val_acc:.3f}"
+              f"{'  <- best' if best_epoch == epoch else ''}")
+    model.load_state_dict(best_state)
+    print(f"best epoch {best_epoch} (val {best_loss:.4f}) — weights restored")
 
 
 if __name__ == "__main__":
     train_set = RaceDataset(DATA_FILE, test=False)
     test_set = RaceDataset(DATA_FILE, test=True)
-    train_loader = DataLoader(train_set, batch_size=BATCH_SIZE, shuffle=True,
+
+    # Validation = the last 10% of the TRAINING races. RaceDataset sorts by
+    # date_race_id, so this is a temporal slice like the train/test split
+    # itself — no future leaks back into model selection, and test stays
+    # untouched until the single scoring run below.
+    n_val = len(train_set) // 10
+    fit_set = Subset(train_set, range(len(train_set) - n_val))
+    val_set = Subset(train_set, range(len(train_set) - n_val, len(train_set)))
+
+    train_loader = DataLoader(fit_set, batch_size=BATCH_SIZE, shuffle=True,
                               collate_fn=collate_fn)
+    val_loader = DataLoader(val_set, batch_size=BATCH_SIZE,
+                            collate_fn=collate_fn)
     test_loader = DataLoader(test_set, batch_size=BATCH_SIZE,
                              collate_fn=collate_fn)
 
     model = RaceTransformer(train_set.n_features)
-    train_model(model, train_loader, test_loader)
+    train_model(model, train_loader, val_loader)
+
+    test_loss, test_acc = evaluate(model, test_loader)
+    print(f"TEST log-loss {test_loss:.4f}, winner-pick acc {test_acc:.3f}")
     print(f"market (odds-implied) test log-loss: {market_log_loss(test_set):.4f}")
