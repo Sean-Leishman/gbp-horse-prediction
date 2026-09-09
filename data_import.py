@@ -37,6 +37,23 @@ def load_rpscrape(dirs):
     return df
 
 
+
+def course_draw_bias(df, course, train_rows, min_cell=200):
+    """Historical win-rate edge of this draw position AT THIS COURSE, relative
+    to the course's own base rate. Estimated on the training window only —
+    the same discipline the scaler already follows — so it cannot leak the
+    test period. Cells with too little history shrink to 0 (no opinion).
+    """
+    bucket = pd.qcut(df['draw_pct'], 3, labels=False, duplicates='drop')
+    tr = pd.DataFrame({'course': course[train_rows], 'b': bucket[train_rows],
+                       'won': df['won'][train_rows]})
+    cell = tr.groupby(['course', 'b']).won.agg(['mean', 'size'])
+    base = tr.groupby('course').won.mean()
+    bias = (cell['mean'] - base.reindex(cell.index.get_level_values('course')).values)
+    bias = bias.where(cell['size'] >= min_cell, 0.0).to_dict()
+    return pd.Series(list(zip(course, bucket)), index=df.index).map(bias).fillna(0.0)
+
+
 def build_frame(raw):
     raw = raw[raw['type'].isin(TYPE_CODE)].copy()  # drops NH Flat etc (~2%)
 
@@ -72,17 +89,42 @@ def build_frame(raw):
     df['race_handicap'] = raw['race_name'].fillna('').str.lower().str.contains(
         'handicap|nursery|h\'cap').astype(int)
 
+    # Draw. A global decile of stall NUMBER encodes field size, not draw bias:
+    # pooled win rate by decile falls 0.121 -> 0.064 purely because a high
+    # stall only exists in a big field. Real draw bias is per course and
+    # reverses sign (Chester +6.5pp for low draws, Lingfield -3.1pp), so
+    # pooling averages it to nothing. See diag_draw.py.
     draws = to_num(raw['draw'])
-    df['draws'] = pd.qcut(draws, q=10, labels=False, duplicates='drop')
-    df['draws'] = df['draws'].fillna(-1).astype(int)  # jumps: no stalls
+    df['draw_pct'] = draws.groupby(raw['race_id']).rank(pct=True).fillna(0.5)
+    df['headgear'] = (raw['hg'].fillna('') != '').astype(int)
+    # rpscrape suffixes a '1' for first time in that headgear (v1, b1, ...) —
+    # a first-time-blinkers signal the market prices and we had nothing for.
+    df['first_time_headgear'] = raw['hg'].fillna('').str.contains('1').astype(int)
 
     df['horse_ages'] = pd.qcut(to_num(raw['age']).abs(), q=5, labels=False, duplicates='drop')
     df['horse_ages'] = df['horse_ages'].fillna(0).astype(int)
     df['horse_weight'] = to_num(raw['lbs']).fillna(0).astype(int)
 
-    df['top_speeds'] = to_num(raw['ts']).fillna(0).astype(int)
-    df['ratings'] = to_num(raw['rpr']).fillna(0).astype(int)
-    df['official_ratings'] = to_num(raw['or']).fillna(0).astype(int)
+    # Ratings: 0 is NOT "unknown" — it reads as "worse than any horse ever
+    # rated" (median RPR is 62), and rpr/ts/or are missing on 5.5/12.4/19.8%
+    # of runners. Impute the median and flag it, so the model can tell an
+    # unrated horse from a bad one. Fixed here rather than downstream because
+    # the Preprocessor derives last_/mean_/best_* features from these columns,
+    # so a zero here poisons the whole rating chain.
+    train_rows = df['date'] <= df['date'].quantile(0.8)   # same boundary the
+    for src, dst in (('rpr', 'ratings'), ('ts', 'top_speeds'),             # split uses
+                     ('or', 'official_ratings')):
+        df[dst] = to_num(raw[src]).fillna(
+            to_num(raw[src])[train_rows].median()).astype(int)
+
+    # DO NOT add rpr/ts missingness as a feature. Racing Post withholds an RPR
+    # from horses beaten a long way, so `rpr is null` is read off the RESULT:
+    # 22,276 such runners 2009-15 contain 2 winners (0.01% vs a 10.7% base),
+    # and ts is nearly as bad at 1.10%. Adding them scored a spectacular
+    # +0.051 nats on the second-stage gate that was entirely this leak.
+    # `or` is different and safe: an official mark is assigned before the race,
+    # and missing-or runners win at 10.02% vs 10.86% — no outcome information.
+    df['official_ratings_missing'] = to_num(raw['or']).isna().astype(int)
 
     # benchmark odds: BSP (margin-free) where matched, bookmaker decimal otherwise
     bsp, dec = to_num(raw['bsp']), to_num(raw['dec'])
@@ -97,6 +139,7 @@ def build_frame(raw):
     df.loc[(df.won == 0) & (df.places == 0), 'places'] = max_places
 
     df['length'] = to_num(raw['ovr_btn']).fillna(0).astype(float)
+    df['course_draw_bias'] = course_draw_bias(df, raw['course'], train_rows)
 
     df = df.dropna(subset=['race_id', 'horse_ids'])
     df = df.astype({'race_id': int, 'horse_ids': int})

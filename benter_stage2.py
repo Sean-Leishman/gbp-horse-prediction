@@ -102,3 +102,36 @@ ctrl = res['market alone  '] - res['market sharpened (control)']
 print(f'\nblend vs market alone      : {raw:+.4f} nats')
 print(f'  of which pure sharpening : {ctrl:+.4f} nats  (no model involved)')
 print(f'  ATTRIBUTABLE TO THE MODEL: {raw - ctrl:+.4f} nats')
+
+
+def bootstrap_gap(a_logp, b_logp, race, won, n_boot=2000, seed=0):
+    """Paired bootstrap over RACES of the per-race log-loss difference.
+    Without this, 'the model adds -0.0001 nats' is indistinguishable from
+    'this test cannot resolve anything smaller than its own noise'."""
+    g = torch.Generator().manual_seed(seed)
+    n = int(race.max()) + 1
+    # per-race loss for each scorer
+    la = -(a_logp * won)
+    lb = -(b_logp * won)
+    pa = torch.zeros(n).scatter_add(0, race, la)
+    pb = torch.zeros(n).scatter_add(0, race, lb)
+    diff = pb - pa                      # >0 means `a` is better
+    idx = torch.randint(0, n, (n_boot, n), generator=g)
+    boots = diff[idx].mean(1)
+    return diff.mean().item(), boots.std().item(), \
+        torch.quantile(boots, torch.tensor([0.025, 0.975])).tolist()
+
+
+if __name__ == '__main__':
+    with torch.no_grad():
+        blended = log_probs(blend(featT).squeeze(1), rT)
+        sharpened = log_probs(sharp(lqT[:, None]).squeeze(1), rT)
+    print('\n--- is the difference resolvable? paired bootstrap over test races ---')
+    for label, cand, base in (
+            ('blend vs market      ', blended, lqT),
+            ('blend vs sharpened   ', blended, sharpened),
+            ('model-in-blend effect', blended, sharpened)):
+        m, se, ci = bootstrap_gap(cand, base, rT, wT)
+        print(f'  {label}: {m:+.4f} nats  SE {se:.4f}  95% CI [{ci[0]:+.4f}, {ci[1]:+.4f}]')
+    print(f'\n  for scale: model-vs-market gap is '
+          f'{(race_log_loss(lqT, rT, wT) - race_log_loss(lmT, rT, wT)).abs().item():.4f} nats')

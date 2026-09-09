@@ -31,6 +31,14 @@ class HorseHistoryDataset(Dataset):
         self.features = torch.tensor(
             df.drop(columns=META_COLS).values, dtype=torch.float32)
         self.rows = np.flatnonzero(df['is_test'].values == test)
+        # kept for race-level scoring: the per-runner BCE this model trains on
+        # is not comparable to logit_baseline/transformer, which score one
+        # multinomial log-loss per race. See race_evaluate().
+        self.race_id = torch.tensor(
+            pd.factorize(df['date_race_id'].values[self.rows])[0])
+        self.odds = torch.tensor(
+            df['odds'].values[self.rows], dtype=torch.float32)
+        self.won_rows = self.won[self.rows]
 
     @property
     def n_features(self):
@@ -86,6 +94,38 @@ def evaluate(model, loader, loss_fn):
     return total / n
 
 
+def race_evaluate(model, loader):
+    """Per-race multinomial log-loss — the metric logit_baseline.py and
+    transformer.py report, so the three models compare directly.
+
+    Also the only honest metric for this model: it trains with pos_weight to
+    counter the ~1-in-10 class imbalance, which shifts every logit up by
+    roughly a constant. That wrecks unweighted per-runner BCE (it scores worse
+    than predicting the base rate) but cancels exactly in a within-race
+    softmax, which is invariant to a uniform shift.
+
+    Requires an unshuffled loader: logits are matched to rows by order.
+    """
+    from logit_baseline import race_log_loss  # deferred: logit_baseline imports us
+    model.eval()
+    scores = []
+    with torch.no_grad():
+        for history, lengths, current, _ in loader:
+            scores.append(model(history, lengths, current))
+    ds = loader.dataset
+    return race_log_loss(torch.cat(scores), ds.race_id, ds.won_rows).item()
+
+
+def market_race_log_loss(dataset):
+    """Odds-implied log-loss on the same races, normalised within each race."""
+    from logit_baseline import race_log_loss
+    p = 1.0 / dataset.odds.clamp(min=1.01)
+    n = int(dataset.race_id.max()) + 1
+    total = torch.zeros(n).scatter_add(0, dataset.race_id, p)
+    return race_log_loss((p / total[dataset.race_id]).log(),
+                         dataset.race_id, dataset.won_rows).item()
+
+
 def train_model(model, train_loader, test_loader, n_epochs=10):
     train_set = train_loader.dataset
     pos = train_set.won[train_set.rows].sum()
@@ -105,9 +145,9 @@ def train_model(model, train_loader, test_loader, n_epochs=10):
             optimizer.step()
             total += loss.item() * len(y)
             seen += len(y)
-        test_loss = evaluate(model, test_loader, eval_loss_fn)
         print(f"epoch {epoch}: train loss {total / seen:.4f}, "
-              f"test log-loss {test_loss:.4f}")
+              f"test per-runner BCE {evaluate(model, test_loader, eval_loss_fn):.4f}, "
+              f"test RACE log-loss {race_evaluate(model, test_loader):.4f}")
 
 
 if __name__ == "__main__":
@@ -120,3 +160,5 @@ if __name__ == "__main__":
 
     model = RNN(train_set.n_features)
     train_model(model, train_loader, test_loader)
+    print(f"market (odds-implied) race log-loss: "
+          f"{market_race_log_loss(test_set):.4f}")

@@ -16,7 +16,9 @@ Class for preparing data from raw data to be used by the model
 FEATURE_COLS = [
     'distance', 'going', 'race_class',
     'race_type__0', 'race_type__1', 'race_type__2', 'race_handicap',
-    'draws', 'horse_ages', 'horse_weight', 'horse_win_percents',
+    'draw_pct', 'course_draw_bias', 'headgear', 'first_time_headgear',
+    'official_ratings_missing',
+    'horse_ages', 'horse_weight', 'horse_win_percents',
     'jockey_win_percent', 'trainer_win_percent', 'days_since_last_race',
     'last_figures', 'last_ratings', 'last_official_ratings',
     'mean_figures', 'mean_ratings',
