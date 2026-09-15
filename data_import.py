@@ -171,4 +171,8 @@ def main(dirs):
 
 
 if __name__ == '__main__':
-    main(sys.argv[1:] or [RPSCRAPE_REGION / 'gb', RPSCRAPE_REGION / 'ire'])
+    # NOT region/gb wholesale: region/<r>/all holds day-mode smoke files
+    # (2015-06-10, 2024-06-12, 2026-07-10) — isolated days with no surrounding
+    # history that land at the end of the split and inside any holdout window.
+    main(sys.argv[1:] or [RPSCRAPE_REGION / r / t
+                          for r in ('gb', 'ire') for t in ('flat', 'jumps')])

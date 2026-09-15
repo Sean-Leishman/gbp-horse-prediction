@@ -272,7 +272,8 @@ class Preprocessor:
     def select_columns(self):
         # 'odds' is kept as a market benchmark to evaluate against — it is NOT
         # a model input (it encodes the outcome the market already knows)
-        self.df = self.df[['horse_ids', 'date_race_id', 'won', 'odds', 'morning_wap'] + FEATURE_COLS].copy()
+        self.df = self.df[['horse_ids', 'date', 'date_race_id', 'won', 'odds',
+                           'morning_wap'] + FEATURE_COLS].copy()
         self.df = self.df.fillna(0)
 
         # order rows (horse, date) so a horse's history is a contiguous slice
