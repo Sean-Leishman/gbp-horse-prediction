@@ -7,7 +7,7 @@ from torch.utils.data import Dataset, DataLoader
 BATCH_SIZE = 128
 MAX_HISTORY = 10
 DATA_FILE = "data/preprocessing/6-model-data.csv"
-META_COLS = ['won', 'odds', 'date_race_id', 'offset_horse_id',
+META_COLS = ['won', 'odds', 'morning_wap', 'date_race_id', 'offset_horse_id',
              'num_previous_races', 'is_test']
 
 

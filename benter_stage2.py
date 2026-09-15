@@ -5,6 +5,8 @@ the market's, not smaller.
 
     python benter_stage2.py              # stage 1 = conditional logit
     python benter_stage2.py --transformer # stage 1 = set-transformer
+    python benter_stage2.py --morning     # decide on morning_wap, settle at BSP
+                                          # (the placeable ROI test, D-005)
 
 Protocol (all of it load-bearing — see DECISIONS.md D-002):
   * the primary model is fit on slice A and its probabilities generated OUT OF
@@ -28,11 +30,17 @@ from logit_baseline import race_log_loss
 
 
 def pack(d):
+    """With --morning, call on morning_priced(d) so every race has a decision
+    price for every runner (a within-race normalisation needs all of them)."""
     X = torch.tensor(d.drop(columns=META_COLS).values, dtype=torch.float32)
     race = torch.tensor(pd.factorize(d['date_race_id'])[0])
     won = torch.tensor(d['won'].values, dtype=torch.float32)
     odds = torch.tensor(d['odds'].values, dtype=torch.float32)
     return X, race, won, odds
+
+
+def morning_priced(d):
+    return d[(d.morning_wap > 0).groupby(d.date_race_id).transform('all')]
 
 
 def log_probs(scores, race):
@@ -152,9 +160,122 @@ def bootstrap_gap(a_logp, b_logp, race, won, n_boot=2000, seed=0):
         torch.quantile(boots, torch.tensor([0.025, 0.975])).tolist()
 
 
-def run_gate(sB, sT, rB, wB, oB, rT, wT, oT):
+COMMISSION = 0.05          # Betfair standard on net winnings; applied per-bet
+                           # on gross here, which is conservative.
+
+def settle(won, odds, race):
+    """Net P&L per unit stake. Dead heats (111 test-window races) pay the stake
+    divided by the number of winners at full odds, the rest of the stake lost --
+    paying every dead-heater in full would overstate ROI."""
+    n = int(race.max()) + 1
+    nwin = torch.zeros(n).scatter_add(0, race, won)[race].clamp(min=1)
+    f = won / nwin
+    return f * (odds - 1) * (1 - COMMISSION) - (1 - f)
+
+
+def roi_report(log_p, log_q, odds, race, won, label='blend', pick_on=None):
+    """The deciding test. Every other number here is in nats; a bet is settled
+    in pounds. A model can be resolvably better than the market in log-loss and
+    still lose money, because log-loss rewards being right about ALL runners
+    while a bet only pays on the ones you back at the offered price.
+
+    Bar was pre-committed in Todo.md: positive ROI after commission with a
+    bootstrap CI excluding zero, or stop.
+    """
+    p = log_p.exp()
+    q = log_q.exp()
+    # Edge must be measured LIKE FOR LIKE. The model's probabilities are a
+    # within-race softmax and sum to 1 by construction; raw 1/BSP does not.
+    # 40.7% of test races are UNDERROUND (sum 1/BSP < 1, median 1.003 but the
+    # 1st percentile is 0.905), so comparing p against raw 1/odds makes every
+    # runner in those races look +EV -- which is how the market-only control
+    # first "returned" +46.8%. Both sides normalised; payout still at raw odds,
+    # because that is the price you actually get.
+    edge = p - q
+    pnl_unit = settle(won, odds, race)
+
+    print(f'\n--- ROI ({label} vs BSP, {COMMISSION:.0%} commission) ---')
+    n_races = int(race.max()) + 1
+    grid = (0.0, 0.005, 0.01, 0.015, 0.02, 0.03)
+
+    if pick_on is not None:
+        # Choose the betting threshold on slice B and spend TEST once. Picking
+        # it by scanning test results is selection on the evaluation set -- the
+        # same error as choosing a training epoch by test loss.
+        bp, bq, bo, br, bw = pick_on
+        be = bp.exp() - bq.exp()
+        bpnl = settle(bw, bo, br)
+        best_t, best_roi = None, -9e9
+        for t in grid:
+            m = be > t
+            if m.sum() < 200:
+                continue
+            r = bpnl[m].mean().item()
+            print(f'  [select on B] edge>{t:.1%}: {int(m.sum()):6d} bets  ROI {r*100:+6.2f}%')
+            if r > best_roi:
+                best_t, best_roi = t, r
+        if best_t is None:
+            print('  no threshold on B reached 200 bets -- nothing to test')
+            return
+        print(f'  -> threshold chosen on B: edge>{best_t:.1%} (B ROI {best_roi*100:+.2f}%)')
+        grid = (best_t,)
+
+    for thresh in grid:
+        sel = edge > thresh
+        if sel.sum() < 50:
+            print(f'  edge>{thresh:.1%}: only {int(sel.sum())} bets, skipped')
+            continue
+        # flat stakes
+        flat = pnl_unit[sel]
+        # fractional Kelly (quarter), capped at 5% of bank. Sized off the
+        # decision price 1/q, not the settlement odds -- those aren't known yet.
+        k = ((p[sel] / q[sel] - 1) / (1 / q[sel] - 1)).clamp(0, 0.05) * 0.25
+        kelly = k * pnl_unit[sel]
+        # Bootstrap RACES (bets in one race are correlated -- backing three
+        # runners means at most one can win). The resampled statistic must be
+        # the same one the point estimate reports: total P&L / total bets,
+        # NOT the mean of per-race means, or the CI describes a different
+        # quantity and need not even contain the point estimate.
+        rsel = race[sel]
+        pnl_r = torch.zeros(n_races).scatter_add(0, rsel, flat)
+        cnt_r = torch.zeros(n_races).scatter_add(0, rsel, torch.ones_like(flat))
+        active = cnt_r > 0
+        pnl_r, cnt_r = pnl_r[active], cnt_r[active]
+        g = torch.Generator().manual_seed(0)
+        idx = torch.randint(0, len(pnl_r), (2000, len(pnl_r)), generator=g)
+        boot = pnl_r[idx].sum(1) / cnt_r[idx].sum(1)
+        lo, hi = torch.quantile(boot, torch.tensor([0.025, 0.975])).tolist()
+        print(f'  edge>{thresh:.1%}: {int(sel.sum()):6d} bets  '
+              f'strike {won[sel].mean()*100:5.2f}%  '
+              f'flat ROI {flat.mean()*100:+6.2f}%  '
+              f'95% CI [{lo*100:+.2f}%, {hi*100:+.2f}%]  '
+              f'| qKelly {kelly.sum()/k.sum().clamp(min=1e-9)*100:+6.2f}%')
+
+    # EXPLORATORY ONLY -- not the pre-committed test. Reported to answer "how
+    # does it lose", not to go shopping for a subset that wins.
+    sel = edge > 0
+    field = torch.zeros(n_races).scatter_add(0, race, torch.ones_like(odds))[race]
+    print('  exploratory (NOT the gate) — flat ROI by field size:')
+    for lo_f, hi_f in ((0, 8), (8, 12), (12, 40)):
+        m = sel & (field > lo_f) & (field <= hi_f)
+        if m.sum() > 100:
+            print(f'    field {lo_f:2d}-{hi_f:2d}: {int(m.sum()):6d} bets  '
+                  f'ROI {pnl_unit[m].mean()*100:+6.2f}%')
+    print('  exploratory (NOT the gate) — flat ROI by BSP band:')
+    for lo_o, hi_o in ((1, 4), (4, 8), (8, 20), (20, 1000)):
+        m = sel & (odds > lo_o) & (odds <= hi_o)
+        if m.sum() > 100:
+            print(f'    odds {lo_o:3d}-{hi_o:4d}: {int(m.sum()):6d} bets  '
+                  f'ROI {pnl_unit[m].mean()*100:+6.2f}%')
+
+
+def run_gate(sB, sT, rB, wB, oB, rT, wT, oT, dB=None, dT=None):
+    """o* = the price bets SETTLE at (BSP). d* = the price the market side of
+    the blend and the betting edge are computed from. Defaults to BSP, which is
+    a lookahead for the ROI test: nobody knows the BSP when the bet goes on."""
     lmB, lmT = log_probs(sB, rB), log_probs(sT, rT)
-    lqB, lqT = market_log_probs(oB, rB), market_log_probs(oT, rT)
+    lqB = market_log_probs(oB if dB is None else dB, rB)
+    lqT = market_log_probs(oT if dT is None else dT, rT)
 
     blend = nn.Linear(2, 1, bias=False)
     with torch.no_grad():
@@ -195,16 +316,29 @@ def run_gate(sB, sT, rB, wB, oB, rT, wT, oT):
     print(f'  of which pure sharpening : {ctrl:+.4f} nats  (no model involved)')
     print(f'  ATTRIBUTABLE TO THE MODEL: {raw - ctrl:+.4f} nats')
 
+    with torch.no_grad():
+        blendedB = log_probs(blend(torch.stack([lmB, lqB], 1)).squeeze(1), rB)
+    roi_report(blended, lqT, oT, rT, wT, 'blend, threshold picked on B',
+               pick_on=(blendedB, lqB, oB, rB, wB))
+    roi_report(blended, lqT, oT, rT, wT, 'blend, full threshold sweep (exploratory)')
+    # Control: the market against itself. edge is identically 0, so a correct
+    # simulation places ZERO bets. If this ever reports a return, the edge
+    # definition is broken -- it caught exactly that on 2026-09-09.
+    roi_report(lqT, lqT, oT, rT, wT, 'market vs itself (control: expect 0 bets)')
+
     m, se, ci = bootstrap_gap(blended, sharpened, rT, wT)
     print(f'\n  model-in-blend effect: {m:+.4f} nats  SE {se:.4f}  '
           f'95% CI [{ci[0]:+.4f}, {ci[1]:+.4f}]')
     print(f'  {"RESOLVABLY NON-ZERO" if ci[0] > 0 else "consistent with ZERO"}'
           f'  (model-vs-market gap for scale: '
           f'{res["model alone              "] - res["market alone             "]:.4f})')
+    return blendedB, blended
 
 
 def main():
     use_tf = '--transformer' in sys.argv
+    morning = '--morning' in sys.argv
+    torch.manual_seed(0)    # transformer stage 1 is otherwise a fresh draw per run
     df = pd.read_csv(DATA_FILE, index_col=[0])
     train, test = df[~df.is_test], df[df.is_test]
     races = train['date_race_id'].drop_duplicates().sort_values().values
@@ -214,14 +348,22 @@ def main():
     print(f'A(fit) {A.date_race_id.nunique()} races | B(blend) '
           f'{B.date_race_id.nunique()} | test {test.date_race_id.nunique()}')
 
+    if morning:
+        B, test = morning_priced(B), morning_priced(test)
+        print(f'--morning: B {B.date_race_id.nunique()} races, test '
+              f'{test.date_race_id.nunique()} with a morning price for every runner')
     XA, rA, wA, _ = pack(A)
     XB, rB, wB, oB = pack(B)
     XT, rT, wT, oT = pack(test)
+    dB = dT = None
+    if morning:
+        dB = torch.tensor(B['morning_wap'].values, dtype=torch.float32)
+        dT = torch.tensor(test['morning_wap'].values, dtype=torch.float32)
     if use_tf:
         sB, sT = transformer_stage1(XA, rA, wA, XB, rB, XT, rT)
     else:
         sB, sT = logit_stage1(XA, rA, wA, XB, XT)
-    run_gate(sB, sT, rB, wB, oB, rT, wT, oT)
+    run_gate(sB, sT, rB, wB, oB, rT, wT, oT, dB, dT)
 
 
 if __name__ == '__main__':

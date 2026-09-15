@@ -130,6 +130,9 @@ def build_frame(raw):
     bsp, dec = to_num(raw['bsp']), to_num(raw['dec'])
     print(f'bsp missing: {bsp.isna().mean()*100:.1f}% (filled from dec)')
     df['odds'] = bsp.fillna(dec).fillna(0).astype(float)
+    # Betfair MORNINGWAP: a price known BEFORE the bet, for ROI decisions (D-005).
+    # BSP settles after the bet, so deciding on it is a lookahead. 0 = untraded.
+    df['morning_wap'] = to_num(raw['morning_wap']).fillna(0).astype(float)
 
     pos = raw['pos'].fillna('0').str.strip()
     pos = pos.where(~pos.isin(NON_FINISH), '0')

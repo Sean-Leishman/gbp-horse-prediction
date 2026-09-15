@@ -101,10 +101,14 @@ class Preprocessor:
     """
     def compute_elo_ratings(self, k=32):
         self.df = self.df.sort_values('date_race_id')
-        ratings = {}
+        ratings, pending, day = {}, {}, None
         pre_race = np.empty(len(self.df))
         pos = 0
         for _, grp in self.df.groupby('date_race_id', sort=True):
+            # updates land at day end: a same-day result must not reach a
+            # later race's pre-race rating (see _prior_days)
+            if grp['date'].iat[0] != day:
+                ratings.update(pending); pending, day = {}, grp['date'].iat[0]
             ids = grp['horse_ids'].values
             n = len(ids)
             r = np.array([ratings.get(h, 1500.0) for h in ids])
@@ -117,7 +121,7 @@ class Preprocessor:
             expected = (1.0 / (1.0 + 10.0 ** ((r[None, :] - r[:, None]) / 400.0))).sum(axis=1)
             expected = (expected - 0.5) / (n - 1)  # drop self-match (diagonal = 0.5)
             for h, new in zip(ids, r + k * (score - expected)):
-                ratings[h] = new
+                pending[h] = new
         self.df['elo_rating'] = pre_race
     def compute_auxillary_features_group(self):
         self.df = self.df.set_index(['jockey_ids', 'horse_ids', 'race_id'])
@@ -129,6 +133,8 @@ class Preprocessor:
         self.df['trainer_win_percent'] = self.df.groupby('trainer_ids')['won'].rolling(
             20, closed='left', min_periods=1).mean().reset_index(0, drop=True)
         self.df = self.df.reset_index()
+        self.df['jockey_win_percent'] = self._prior_days('jockey_win_percent', ['jockey_ids'])
+        self.df['trainer_win_percent'] = self._prior_days('trainer_win_percent', ['trainer_ids'])
 
         self.df = self.df.fillna(0)
     """
@@ -137,12 +143,25 @@ class Preprocessor:
     distance band. For each row this is "win % of this parent's offspring in
     races strictly before today's race".
     """
+    def _prior_days(self, col, keys):
+        """Row-wise closed='left' windows over a date-sorted frame still see
+        EARLIER ROWS OF THE SAME DAY -- including a stablemate in the same race.
+        Measured 2026-09-15: where two same-trainer runners in one race got
+        different trainer_win_percent, the higher one won 0.1% vs 38.4% (the
+        higher value had absorbed the other's win). The first row of each
+        (key, day) only saw earlier days, so give every row that value. Also
+        makes the features valid for a morning bet, not only one at the off."""
+        # fillna first: transform('first') SKIPS NaN, so a key's debut row
+        # (NaN, no history) would take a same-day value. NaN becomes 0 downstream.
+        by = [self.df[k] for k in keys + ['date']]
+        return self.df[col].fillna(0).groupby(by, sort=False).transform('first')
+
     def _past_win_percent(self, group_cols):
         g = self.df.groupby(group_cols, sort=False)['won']
-        # cumulative wins/starts up to but excluding the current row
-        # ponytail: two same-parent runners in one race see each other's result;
-        # negligible — aggregate per (parent, race) first if it ever matters
-        return (g.cumsum() - self.df['won']) / g.cumcount()
+        # cumulative wins/starts up to but excluding the current row, then
+        # restricted to earlier days (see _prior_days)
+        self.df['_pwp'] = (g.cumsum() - self.df['won']) / g.cumcount()
+        return self._prior_days('_pwp', group_cols)
 
     def compute_pedigree_group(self):
         self.df = self.df.sort_values('date')
@@ -167,7 +186,7 @@ class Preprocessor:
         # old computation averaged over the whole dataset (future leakage) and a
         # parent's own races mostly predate the data anyway. Re-add as a static
         # per-horse career lookup if they earn their keep.
-        self.df = self.df.drop('going_band', axis=1)
+        self.df = self.df.drop(['going_band', '_pwp'], axis=1)
         self.df = self.df.fillna(0)
 
     """ 
@@ -253,7 +272,7 @@ class Preprocessor:
     def select_columns(self):
         # 'odds' is kept as a market benchmark to evaluate against — it is NOT
         # a model input (it encodes the outcome the market already knows)
-        self.df = self.df[['horse_ids', 'date_race_id', 'won', 'odds'] + FEATURE_COLS].copy()
+        self.df = self.df[['horse_ids', 'date_race_id', 'won', 'odds', 'morning_wap'] + FEATURE_COLS].copy()
         self.df = self.df.fillna(0)
 
         # order rows (horse, date) so a horse's history is a contiguous slice
