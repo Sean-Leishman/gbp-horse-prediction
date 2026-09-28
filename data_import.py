@@ -15,7 +15,13 @@ import pandas as pd
 from helper import going_to_scale_dict
 from preprocessing import Preprocessor
 
+# Two scraper trees. The original rpscrape stopped working on 2026-09-28 (Racing
+# Post retired its endpoints, upstream went offline), so anything scraped since
+# comes from the community fork. Both are read; data drops duplicate
+# (race_id, horse_ids) pairs, and the two were cross-checked as identical on an
+# overlapping day. See LOG.md 2026-09-28.
 RPSCRAPE_REGION = Path.home() / 'Projects/rpscrape/data/region'
+COMMUNITY_REGION = Path.home() / 'Projects/rpscrape-community/data/region'
 
 # finish-position codes that mean "did not finish/place" (legacy list + rpscrape's)
 NON_FINISH = {'F', 'PU', 'DSQ', 'SU', 'BD', 'UR', 'RO', 'RR', 'REF',
@@ -174,5 +180,6 @@ if __name__ == '__main__':
     # NOT region/gb wholesale: region/<r>/all holds day-mode smoke files
     # (2015-06-10, 2024-06-12, 2026-07-10) — isolated days with no surrounding
     # history that land at the end of the split and inside any holdout window.
-    main(sys.argv[1:] or [RPSCRAPE_REGION / r / t
+    main(sys.argv[1:] or [root / r / t
+                          for root in (RPSCRAPE_REGION, COMMUNITY_REGION)
                           for r in ('gb', 'ire') for t in ('flat', 'jumps')])
