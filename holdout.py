@@ -37,6 +37,8 @@ from rnn import DATA_FILE
 from torch import nn
 
 HOLDOUT_START = '2016-01-15'
+HOLDOUT_END = '2016-12-31'   # the window is fixed at both ends: a later year
+                             # must not widen it silently once it is scraped
 THRESHOLD = 0.03
 SEEDS = (0, 1, 2)
 
@@ -56,11 +58,21 @@ def fit_blend(lm, lq, race, won):
 def main():
     use_logit = '--logit' in sys.argv
     df = pd.read_csv(DATA_FILE, index_col=[0])
-    train, hold = df[df.date < HOLDOUT_START], df[df.date >= HOLDOUT_START]
+    train = df[df.date < HOLDOUT_START]
+    hold = df[(df.date >= HOLDOUT_START) & (df.date <= HOLDOUT_END)]
     train, hold = morning_priced(train), morning_priced(hold)
     if not len(hold):
         sys.exit(f'no morning-priced races on/after {HOLDOUT_START} yet — '
                  'the scrape has not reached them')
+    # Spend the holdout ONCE, on the finished window. Running it as months
+    # accumulate is several looks at the test set, which is the whole thing
+    # pre-registering it was meant to stop -- so this is a check, not a note
+    # in the log. December racing exists every year; if the window does not
+    # reach it, the scrape is unfinished.
+    if hold.date.max() < HOLDOUT_END[:4] + '-12-01' and '--force-partial' not in sys.argv:
+        sys.exit(f'holdout window stops at {hold.date.max()} — the scrape has not '
+                 f'finished {HOLDOUT_END[:4]}. Wait for it; do not spend the '
+                 'holdout on a partial year (--force-partial to override).')
     races = train['date_race_id'].drop_duplicates().sort_values().values
     cut = races[int(len(races) * 0.75)]
     A, B = train[train.date_race_id < cut], train[train.date_race_id >= cut]
