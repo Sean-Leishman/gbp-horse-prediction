@@ -284,18 +284,21 @@ class Preprocessor:
         self.df['num_previous_races'] = self.df.groupby('offset_horse_id').cumcount()
         self.df = self.df.drop('horse_ids', axis=1)
 
-    def train_test_split(self):
+    def train_test_split(self, cutoff=None, out=None):
         """Temporal split: last 20% of races are test. The scaler is fit on
         train rows only. One file is written; test rows are flagged so the
         model can still read a horse's pre-cutoff history at test time
         (that history is legitimately in the past, not leakage)."""
-        cutoff = self.df['date_race_id'].quantile(0.8)
-        self.df['is_test'] = self.df['date_race_id'] > cutoff
+        if cutoff:                       # walk-forward fold: test = on/after it
+            self.df['is_test'] = self.df['date'] >= cutoff
+        else:
+            self.df['is_test'] = (self.df['date_race_id']
+                                  > self.df['date_race_id'].quantile(0.8))
 
         scaler = StandardScaler().fit(self.df.loc[~self.df.is_test, FEATURE_COLS])
         self.df[FEATURE_COLS] = scaler.transform(self.df[FEATURE_COLS])
 
-        self.df.to_csv("data/preprocessing/6-model-data.csv")
+        self.df.to_csv(out or "data/preprocessing/6-model-data.csv")
 
     def preprocess(self, merge_df=False, comp_horse_feats=False, comp_aux_feats=False, comp_pedigree_feats=False, select_columns=False, train_test_split=False):
         start = timer()

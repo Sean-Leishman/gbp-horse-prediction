@@ -60,7 +60,7 @@ def course_draw_bias(df, course, train_rows, min_cell=200):
     return pd.Series(list(zip(course, bucket)), index=df.index).map(bias).fillna(0.0)
 
 
-def build_frame(raw):
+def build_frame(raw, cutoff=None):
     raw = raw[raw['type'].isin(TYPE_CODE)].copy()  # drops NH Flat etc (~2%)
 
     df = pd.DataFrame()
@@ -117,7 +117,10 @@ def build_frame(raw):
     # unrated horse from a bad one. Fixed here rather than downstream because
     # the Preprocessor derives last_/mean_/best_* features from these columns,
     # so a zero here poisons the whole rating chain.
-    train_rows = df['date'] <= df['date'].quantile(0.8)   # same boundary the
+    # cutoff: everything strictly before it is "the past". Walk-forward folds
+    # pass their own, so these statistics never see the fold's test year.
+    train_rows = (df['date'] < cutoff if cutoff
+                  else df['date'] <= df['date'].quantile(0.8))   # same boundary the
     for src, dst in (('rpr', 'ratings'), ('ts', 'top_speeds'),             # split uses
                      ('or', 'official_ratings')):
         df[dst] = to_num(raw[src]).fillna(
@@ -158,8 +161,8 @@ def build_frame(raw):
     return df
 
 
-def main(dirs):
-    df = build_frame(load_rpscrape(dirs))
+def main(dirs, cutoff=None, out=None):
+    df = build_frame(load_rpscrape(dirs), cutoff)
     print(f'{len(df)} runners, {df.race_id.nunique()} races, '
           f'{df.date.min().date()} -> {df.date.max().date()}, '
           f'win rate {df.won.mean()*100:.1f}%')
@@ -172,7 +175,7 @@ def main(dirs):
     p.compute_pedigree_group()
     p.select_columns()
     Path('data/preprocessing').mkdir(parents=True, exist_ok=True)
-    p.train_test_split()
+    p.train_test_split(cutoff, out)
     print('written data/preprocessing/6-model-data.csv')
 
 
