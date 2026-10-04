@@ -15,3 +15,4 @@ Todo.md
 # memory files are symlinks into the vault (canonical there)
 .vault
 wfc.log
+holdout_result.txt
