@@ -16,6 +16,7 @@ SCRAPE_LOG=$HOME/Projects/rpscrape-community/scrape2016.log
 grep -q "ALL 2016 DONE" "$SCRAPE_LOG" 2>/dev/null || exit 0
 
 cd "$REPO" || exit 1
+TMP=$(mktemp)
 {
   echo "=== holdout run $(date -Is) ==="
   echo "--- rebuilding dataset (both scraper trees)"
@@ -23,4 +24,14 @@ cd "$REPO" || exit 1
   echo "--- holdout.py (transformer seeds 0,1,2; threshold fixed 3%)"
   .venv/bin/python holdout.py 2>&1 | grep -viE "warning|stage1 epoch"
   echo "=== finished $(date -Is) ==="
-} >> "$RESULT" 2>&1
+} > "$TMP" 2>&1
+
+# Only a RUN counts as the result. holdout.py exits non-zero when the year is
+# short, and promoting that refusal would make the lock file permanent and burn
+# the single run on nothing. Keep failures in a separate log and try again.
+if grep -q "PORTFOLIO" "$TMP"; then
+  mv "$TMP" "$RESULT"
+else
+  { echo "--- holdout not run $(date -Is):"; cat "$TMP"; } >> "$REPO/holdout_attempts.log"
+  rm -f "$TMP"
+fi
