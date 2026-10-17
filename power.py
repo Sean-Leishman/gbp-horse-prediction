@@ -18,6 +18,8 @@ is the WIDTH column (a variance property of the instrument), never the ROI one.
 
     python power.py          # ~20 min/fold; fold data is cached
 """
+from pathlib import Path
+
 import torch
 
 from benter_stage2 import (COMMISSION, log_probs, market_log_probs, pack,
@@ -28,6 +30,31 @@ from walkforward_clean import fold_data
 
 THRESHOLDS = (0.0, 0.005, 0.01, 0.02, 0.03)
 BOOT = 2000
+CACHE_DIR = Path('data')
+
+# Staking rules. Each returns the stake per bet; the statistic is always
+# sum(stake * pnl_per_unit) / sum(stake), i.e. profit per unit risked.
+#
+# This is the "lower-variance statistic" option in D-007. Flat staking puts
+# q(1-q)*odds^2 of variance into every bet, so a handful of long-priced winners
+# dominate the width -- which is what makes a single year unreadable. Staking to
+# win a fixed amount flattens that; quarter-Kelly sits between the two.
+def _flat(p, q, odds):
+    return torch.ones_like(odds)
+
+
+def _equal_profit(p, q, odds):
+    # Stake 1/(odds-1): every winning bet returns the same profit, so per-bet
+    # P&L variance stops scaling with price.
+    return 1.0 / (odds - 1).clamp(min=0.05)
+
+
+def _quarter_kelly(p, q, odds):
+    # Sized off the DECISION price 1/q, never the settlement odds (D-005).
+    return (((p / q - 1) / (1 / q - 1)).clamp(0, 0.05) * 0.25).clamp(min=1e-6)
+
+
+STAKES = {'flat': _flat, 'equal-profit': _equal_profit, 'qKelly': _quarter_kelly}
 
 # GB flat races per month, 2015 (the shape 2016 is assumed to repeat). The
 # holdout window opens 2016-01-15, so January counts 17/31 of its races.
@@ -56,6 +83,14 @@ def ci(pnl_r, stk_r, n_draw=None):
 def main():
     folds = {}
     for year in FOLDS:
+        # The transformer retrain is ~15 min a fold and nothing below changes
+        # it, so the arrays the power maths needs are cached. Delete
+        # data/power_cache_*.pt to force a retrain.
+        cache = CACHE_DIR / f'power_cache_{year}.pt'
+        if cache.exists():
+            folds[year] = torch.load(cache)
+            print(f'fold {year}: cached, test {folds[year]["test_races"]} races', flush=True)
+            continue
         df = fold_data(year)
         train = morning_priced(df[~df.is_test])
         test = morning_priced(df[df.is_test & (df.date <= f'{year}-12-31')])
@@ -74,17 +109,20 @@ def main():
         blend = fit_blend(log_probs(sB, rB), lqB, rB, wB)
         with torch.no_grad():
             lp = log_probs(blend(torch.stack([log_probs(sT, rT), lqT], 1)).squeeze(1), rT)
-        folds[year] = (lp.exp() - lqT.exp(), settle(wT, oT, rT), rT,
-                       test['date_race_id'].nunique())
-        print(f'fold {year}: test {folds[year][3]} races', flush=True)
+        torch.save({'edge': lp.exp() - lqT.exp(), 'pnl': settle(wT, oT, rT),
+                    'odds': oT, 'p': lp.exp(), 'q': lqT.exp(), 'race': rT,
+                    'test_races': test['date_race_id'].nunique()}, cache)
+        folds[year] = torch.load(cache)
+        print(f'fold {year}: test {folds[year]["test_races"]} races', flush=True)
 
-    n_races = {y: int(r.max()) + 1 for y, (_, _, r, _) in folds.items()}
+    n_races = {y: int(f['race'].max()) + 1 for y, f in folds.items()}
     print(f'\n{"=" * 78}\nPER-FOLD (one year each — the holdout is one year)\n{"=" * 78}')
     print(f'{"thr":>5} {"year":>5} {"bets":>6} {"ROI":>8} {"95% CI":>20} {"+/-":>7}')
     pooled = {}
     for thr in THRESHOLDS:
         agg = []
-        for year, (edge, pnl, race, _) in folds.items():
+        for year, f in folds.items():
+            edge, pnl, race = f['edge'], f['pnl'], f['race']
             sel = edge > thr
             pr = torch.zeros(n_races[year]).scatter_add(0, race, pnl * sel)
             sr = torch.zeros(n_races[year]).scatter_add(0, race, sel.float())
@@ -102,13 +140,38 @@ def main():
     hdr = ''.join(f'{k:>22}' for k in WINDOWS)
     print(f'{"thr":>5} {"bets/race":>10}{hdr}')
     for thr, (pr, sr) in pooled.items():
-        per_race = len(pr) / sum(f[3] for f in folds.values())   # bet-carrying fraction
+        per_race = len(pr) / sum(f['test_races'] for f in folds.values())
         row = ''
         for races in WINDOWS.values():
             n = max(30, round(per_race * races))
             _, _, hw = ci(pr, sr, n)
             row += f'{f"{int(n * (sr.sum() / len(sr)))} bets  >{hw * 100:.1f}%":>22}'
         print(f'{thr:>5.1%} {per_race:>10.2f}{row}')
+    print(f'\n{"=" * 78}\nCAN A LOWER-VARIANCE STATISTIC RESCUE A SINGLE YEAR? (D-007)\n'
+          f'ROI and the FULL-YEAR minimum detectable ROI under three staking rules\n{"=" * 78}')
+    full = WINDOWS['FULL Jan15-Dec31']
+    print(f'{"thr":>5} {"staking":>13} {"ROI (spent)":>12} {"full-yr MDE":>12} {"ROI/MDE":>8}')
+    for thr in THRESHOLDS:
+        for name, rule in STAKES.items():
+            pr_all, sr_all = [], []
+            for year, f in folds.items():
+                sel = (f['edge'] > thr).float()
+                stake = rule(f['p'], f['q'], f['odds']) * sel
+                pr = torch.zeros(n_races[year]).scatter_add(0, f['race'], stake * f['pnl'])
+                sr = torch.zeros(n_races[year]).scatter_add(0, f['race'], stake)
+                act = sr > 1e-9
+                pr_all.append(pr[act]); sr_all.append(sr[act])
+            pr, sr = torch.cat(pr_all), torch.cat(sr_all)
+            roi = (pr.sum() / sr.sum()).item()
+            per_race = len(pr) / sum(f['test_races'] for f in folds.values())
+            _, _, hw = ci(pr, sr, max(30, round(per_race * full)))
+            print(f'{thr:>5.1%} {name:>13} {roi * 100:>+11.2f}% {hw * 100:>+11.2f}pp '
+                  f'{roi / hw:>8.2f}')
+    print('\nROI/MDE above 1.0 means a single year could clear zero at the observed\n'
+          'effect. The ROI column is SPENT (2011-2013), so it must not select the rule;\n'
+          'the defensible pre-registration picks threshold and staking on slice B of the\n'
+          "holdout's own training data, which costs no test data at all.")
+
     print(f'\nBar is "CI excludes zero" at {COMMISSION:.0%} commission. A window whose '
           'minimum\ndetectable ROI exceeds the plausible edge (+1.4% to +7.9% observed) '
           'cannot\nreturn a pass, and its failure would carry no information.')
