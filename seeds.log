@@ -1,0 +1,7 @@
+  stage1 train 9550 races, val 1061 (30 dead heats dropped)
+/home/seanleishman/Projects/gbp-horse-prediction/.venv/lib64/python3.14/site-packages/torch/nn/modules/transformer.py:529: UserWarning: The PyTorch API of nested tensors is in prototype stage and will change in the near future. We recommend specifying layout=torch.jagged when constructing a nested tensor, as this layout receives active development, has better operator coverage, and works with torch.compile. (Triggered internally at /__w/pytorch/pytorch/aten/src/ATen/NestedTensorImpl.cpp:177.)
+  output = torch._nested_tensor_from_mask(
+  stage1 epoch 0: val 1.8273  <- best
+  stage1 epoch 1: val 1.8197  <- best
+  stage1 epoch 2: val 1.8065  <- best
+  stage1 epoch 3: val 1.8191
