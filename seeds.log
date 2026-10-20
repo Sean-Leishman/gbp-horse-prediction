@@ -5,3 +5,130 @@
   stage1 epoch 1: val 1.8197  <- best
   stage1 epoch 2: val 1.8065  <- best
   stage1 epoch 3: val 1.8191
+  stage1 epoch 4: val 1.8133
+  stage1 epoch 5: val 1.8329
+  stage1 epoch 6: val 1.8241
+  stage1 epoch 7: val 1.8242
+  stage1 epoch 8: val 1.8529
+  stage1 epoch 9: val 1.8589
+  stage1 epoch 10: val 1.8792
+  stage1 epoch 11: val 1.8924
+  stage1 epoch 12: val 1.9370
+  stage1 epoch 13: val 1.9618
+  stage1 epoch 14: val 2.0069
+  stage1 epoch 15: val 2.0505
+  stage1 epoch 16: val 2.0093
+  stage1 epoch 17: val 2.0266
+  stage1 epoch 18: val 2.0188
+  stage1 epoch 19: val 2.0829
+fold 2011 seed 1: wrote data/seed_cache_2011_1.pt  blend weights [0.487, 0.649]
+  stage1 train 9550 races, val 1061 (30 dead heats dropped)
+  stage1 epoch 0: val 1.8493  <- best
+  stage1 epoch 1: val 1.8277  <- best
+  stage1 epoch 2: val 1.8600
+  stage1 epoch 3: val 1.8217  <- best
+  stage1 epoch 4: val 1.8259
+  stage1 epoch 5: val 1.8365
+  stage1 epoch 6: val 1.8588
+  stage1 epoch 7: val 1.8819
+  stage1 epoch 8: val 1.8763
+  stage1 epoch 9: val 1.8851
+  stage1 epoch 10: val 1.9192
+  stage1 epoch 11: val 1.9119
+  stage1 epoch 12: val 1.9390
+  stage1 epoch 13: val 1.9601
+  stage1 epoch 14: val 1.9432
+  stage1 epoch 15: val 1.9765
+  stage1 epoch 16: val 1.9707
+  stage1 epoch 17: val 2.0364
+  stage1 epoch 18: val 2.0353
+  stage1 epoch 19: val 2.0204
+fold 2011 seed 2: wrote data/seed_cache_2011_2.pt  blend weights [0.53, 0.639]
+  stage1 train 13712 races, val 1523 (41 dead heats dropped)
+  stage1 epoch 0: val 1.8198  <- best
+  stage1 epoch 1: val 1.8031  <- best
+  stage1 epoch 2: val 1.8178
+  stage1 epoch 3: val 1.8008  <- best
+  stage1 epoch 4: val 1.8079
+  stage1 epoch 5: val 1.8160
+  stage1 epoch 6: val 1.8183
+  stage1 epoch 7: val 1.8139
+  stage1 epoch 8: val 1.8150
+  stage1 epoch 9: val 1.8302
+  stage1 epoch 10: val 1.8267
+  stage1 epoch 11: val 1.8643
+  stage1 epoch 12: val 1.8560
+  stage1 epoch 13: val 1.8747
+  stage1 epoch 14: val 1.8902
+  stage1 epoch 15: val 1.8763
+  stage1 epoch 16: val 1.9330
+  stage1 epoch 17: val 1.9241
+  stage1 epoch 18: val 1.9501
+  stage1 epoch 19: val 1.9668
+fold 2012 seed 1: wrote data/seed_cache_2012_1.pt  blend weights [0.452, 0.667]
+  stage1 train 13712 races, val 1523 (41 dead heats dropped)
+  stage1 epoch 0: val 1.8344  <- best
+  stage1 epoch 1: val 1.8289  <- best
+  stage1 epoch 2: val 1.8209  <- best
+  stage1 epoch 3: val 1.8149  <- best
+  stage1 epoch 4: val 1.8115  <- best
+  stage1 epoch 5: val 1.8662
+  stage1 epoch 6: val 1.8375
+  stage1 epoch 7: val 1.8251
+  stage1 epoch 8: val 1.8540
+  stage1 epoch 9: val 1.8540
+  stage1 epoch 10: val 1.8507
+  stage1 epoch 11: val 1.8985
+  stage1 epoch 12: val 1.8616
+  stage1 epoch 13: val 1.9174
+  stage1 epoch 14: val 1.8753
+  stage1 epoch 15: val 1.9242
+  stage1 epoch 16: val 1.9495
+  stage1 epoch 17: val 1.9538
+  stage1 epoch 18: val 1.9450
+  stage1 epoch 19: val 1.9584
+fold 2012 seed 2: wrote data/seed_cache_2012_2.pt  blend weights [0.517, 0.664]
+  stage1 train 17774 races, val 1974 (51 dead heats dropped)
+  stage1 epoch 0: val 1.8377  <- best
+  stage1 epoch 1: val 1.8378
+  stage1 epoch 2: val 1.8328  <- best
+  stage1 epoch 3: val 1.8182  <- best
+  stage1 epoch 4: val 1.8245
+  stage1 epoch 5: val 1.8427
+  stage1 epoch 6: val 1.8477
+  stage1 epoch 7: val 1.8471
+  stage1 epoch 8: val 1.8714
+  stage1 epoch 9: val 1.8480
+  stage1 epoch 10: val 1.8699
+  stage1 epoch 11: val 1.8752
+  stage1 epoch 12: val 1.8797
+  stage1 epoch 13: val 1.8830
+  stage1 epoch 14: val 1.9057
+  stage1 epoch 15: val 1.9100
+  stage1 epoch 16: val 1.9063
+  stage1 epoch 17: val 1.9328
+  stage1 epoch 18: val 1.9340
+  stage1 epoch 19: val 1.9336
+fold 2013 seed 1: wrote data/seed_cache_2013_1.pt  blend weights [0.35, 0.752]
+  stage1 train 17774 races, val 1974 (51 dead heats dropped)
+  stage1 epoch 0: val 1.8546  <- best
+  stage1 epoch 1: val 1.8343  <- best
+  stage1 epoch 2: val 1.8316  <- best
+  stage1 epoch 3: val 1.8158  <- best
+  stage1 epoch 4: val 1.8489
+  stage1 epoch 5: val 1.8232
+  stage1 epoch 6: val 1.8435
+  stage1 epoch 7: val 1.8486
+  stage1 epoch 8: val 1.8484
+  stage1 epoch 9: val 1.8704
+  stage1 epoch 10: val 1.8656
+  stage1 epoch 11: val 1.8630
+  stage1 epoch 12: val 1.8776
+  stage1 epoch 13: val 1.8931
+  stage1 epoch 14: val 1.8889
+  stage1 epoch 15: val 1.9242
+  stage1 epoch 16: val 1.9102
+  stage1 epoch 17: val 1.9314
+  stage1 epoch 18: val 1.9320
+  stage1 epoch 19: val 1.9573
+fold 2013 seed 2: wrote data/seed_cache_2013_2.pt  blend weights [0.366, 0.748]

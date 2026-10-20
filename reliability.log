@@ -1,0 +1,22 @@
+3 folds, 18454 races, seeds (0, 1, 2)
+
+POWER CHECK (read before the bar, per PLAN.md)
+  status quo, seed-0 edge > 3%: 13974 bets
+  unanimity rule:                  7880 bets (56% retained)
+  ADEQUATELY POWERED — 
+
+MATCHED CONTROL: seed-0 threshold raised 3.00% -> 4.26% to select 7880 bets
+
+BAR 1 (primary) — same probability in both arms, only selection differs
+  unanimity (seed-avg prob)            7880 bets  prob 0.2750  actual 0.2662  error +0.87pp [-0.03, +1.72]
+  matched control (seed-avg prob)      7880 bets  prob 0.2961  actual 0.2839  error +1.22pp [+0.31, +2.07]
+  status quo (seed-0, context only)   13974 bets  prob 0.2547  actual 0.2392  error +1.55pp [+0.90, +2.13]
+
+  difference (unanimity - control): -0.34pp [-0.99, +0.28]
+  BAR 1: FAIL — negative with CI excluding zero
+
+BAR 2 (dense) — seed-avg log-loss 1.8893 vs seed-0 1.8909
+  gain +0.0016 [+0.0007, +0.0024]  not worse
+  BAR 2: PASS
+
+SELECTIVE, NOT CONFIRMATORY (7th read of these folds). 
